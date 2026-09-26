@@ -81,6 +81,28 @@ clm-serve --max-tokens 8192 --port 8700
   debug a JudgeConfig: paste a state, type the questions, look at the
   distributions before committing them to a source plugin.
 
+#### GPU topology
+
+The encoder is the only part that really wants a GPU; the projection
+heads (20M params) are cheap anywhere. Pick the topology that matches
+the hardware:
+
+| Setup | Encoder (vLLM) | Heads (`clm-serve`) | Item latency |
+|---|---|---|---|
+| GPU on this machine | local | local, GPU | ~30 ms |
+| GPU elsewhere | remote host | local, CPU | ~30 ms + RTT |
+| No GPU at all | local, CPU | local, CPU | hundreds of ms |
+| Hosted Jev instead | — | — (no CLM) | ~350–440 ms |
+
+The split topology (row 2) is the interesting one for a GPU-less server
+like the one Sibilla targets: `clm-serve` reaches the remote encoder
+with `--emb-url http://<gpu-host>:8090/v1/embeddings`. Over Tailscale
+the embedding payloads (a few hundred KB) add a single-digit-ms RTT to
+state misses; cache hits never touch the network. Wire the GPU host into
+the same tailnet and the whole judge stays private. `--device cpu` on
+`clm-serve` is the explicit fallback for all-CPU setups, not the default
+plan: on CPU-only the weekly 1,750-item cycle goes from minutes to hours.
+
 What Sibilla uses beyond the basic three primitives:
 
 - **Vector cache (built-in).** The state embedding is computed once and
@@ -195,11 +217,12 @@ Assumptions: 3 arXiv categories ≈ 250 papers/day = 1,750/week; state
 4,000 tokens refreshed monthly.
 
 **CLM (local, reference):** marginal cost $0. The real costs are the GPU
-(one consumer card runs the encoder + heads comfortably; CPU-only works
-but latency grows to a few hundred ms/item — still minutes per weekly
-cycle) and ~2 GB VRAM for the reserved vector cache (`--action-cache`
-default 2%). At Sibilla's volume the machine is idle 99.9% of the time;
-the weekly judge cycle is a 1–2 minute job.
+(see [GPU topology](#gpu-topology): a consumer card on the Sibilla host,
+or any GPU host on the tailnet; all-CPU works but turns the weekly cycle
+into hours, not minutes) and ~2 GB VRAM for the reserved vector cache
+(`--action-cache` default 2%). At Sibilla's volume the machine is idle
+99.9% of the time; the weekly judge cycle is a 1–2 minute job with a GPU
+in the loop.
 
 **TypeSafe Jev (alternative):**
 
