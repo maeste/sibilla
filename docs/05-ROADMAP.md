@@ -13,7 +13,7 @@ Scope: one source, full loop, daily dogfood.
 - [ ] `state/builder.py` — GitHub → state text + `state_hash`
   (gh CLI or REST; RADAR.md appended verbatim)
 - [ ] `sources/arxiv.py` — Atom fetch, 3 categories, 24h window
-- [ ] `judge/` — TypeSafe SDK wrapper + packer + arXiv JudgeConfig
+- [ ] `judge/` — backend protocol + CLM backend (local) + packer + arXiv JudgeConfig
   (relevance / applicability / novelty)
 - [ ] `render/` — single-file treemap, quadrants + human zone v0
 - [ ] `cli.py` — `sibilla run`, `sibilla map`
@@ -49,7 +49,7 @@ you'd have missed otherwise; KILL trust (no more than ~1 manual
   export) — **go/no-go gate**, see risks
 - [ ] Monitored-profile list config
 - [ ] X JudgeConfig (substance / kind; aggressive ~90% KILL target)
-- [ ] Semantic dedup residual: pairwise Jev clustering on candidate pairs
+- [ ] Semantic dedup residual: judge `rank()` clustering on candidate pairs
 - [ ] Weekly drift view: state_hash history vs quadrant shifts
 
 ## Risks & mitigations
@@ -57,7 +57,7 @@ you'd have missed otherwise; KILL trust (no more than ~1 manual
 | # | Risk | Sev | Mitigation |
 |---|------|-----|-----------|
 | R1 | X API pricing ($200/mo class) kills the v2 source | 🔴 | Pluggable transport decided at v2 gate; X is additive, never load-bearing; monitored-profile list bounds volume |
-| R2 | Jev rate limits "adjusting dynamically" (their words) | 🟡 | We are ~10 req/week — three orders of magnitude under limit; SDK retries + degrade-to-last-verdicts |
+| R2 | Hosted-judge rate limits "adjusting dynamically" (TypeSafe's words) | 🟡 | Local CLM makes this moot; for the hosted backend we are ~10 req/week — three orders under limit; retries + degrade-to-last-verdicts |
 | R3 | Profile quality: repos too heterogeneous → mushy state | 🟡 | RADAR.md manual override; monthly rebuild diff to inspect drift |
 | R4 | Calibration in practice ≠ docs promise | 🟡 | v0.5 measures READ precision manually; human-zone cap bounds the blast radius |
 | R5 | arXiv Atom API changes / throttling | 🟢 | Trivial volumes; cached raw responses; 24h retry window |
@@ -73,7 +73,7 @@ The project is worth continuing only if, after v1:
    revive/day).
 3. **Serendipity rate:** ≥1 applicability-relevant discovery/week that
    organic channels would have delivered later or never.
-4. **Cost floor:** total TypeSafe spend < cost of one coffee/quarter.
+4. **Cost floor:** judge spend is zero (local CLM); hosted-Jev spend < cost of one coffee/quarter.
 
 If (1) or (2) fail after threshold tuning → the filter thesis is wrong
 for this user; stop, write the post-mortem, keep the state-builder (it is

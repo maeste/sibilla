@@ -1,7 +1,7 @@
 # 04 — Visual
 
 **Project:** Sibilla
-**Depends on:** [03 – Jev Judge](03-JEV-JUDGE.md)
+**Depends on:** [03 – Judge](03-JUDGE.md)
 
 ## Design principle
 
@@ -70,7 +70,7 @@ fully hidden. They land in a bounded gray band sized to ~10% of the
 viewport — capped because "model unsure" must not become "wall of work".
 Overflow pages through (10 items/page) rather than growing.
 
-This is the honest-UI translation of Jev's calibration: uncertainty is
+This is the honest-UI translation of the judge's calibration: uncertainty is
 surfaced, not smoothed over. No existing digest does this; it is the
 visible signature of the System One requirement.
 
