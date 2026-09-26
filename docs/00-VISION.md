@@ -47,19 +47,19 @@ Three pillars:
 
 ### 1. State from code, not declarations
 
-The judgment *state* (Jev input) is built deterministically from GitHub:
+The judgment *state* (the judge's input) is built deterministically from GitHub:
 repo topics, README lead sections, recent commit messages. An optional
 `RADAR.md` per-user override covers interests invisible from code.
 Deterministic construction → the model never invents the profile.
 
 ### 2. System One economics
 
-Jev evaluates a state against typed questions (choice / score / noul) and
+The judge evaluates a state against typed questions (choice / score / noul) and
 returns **calibrated probabilities**, not generated text. Consequences:
 
 - **Cost**: state is packed once per request; questions ride along in
   parallel. Full workload ≈ **$1.43/year** (see
-  [03 – Jev Judge](03-JEV-JUDGE.md#cost-model)). A mini-LLM doing the same
+  [03 – Judge](03-JUDGE.md#cost-model)). A mini-LLM doing the same
   per-item prompting costs ~42x more.
 - **Calibration**: confidence is a first-class output. Low confidence →
   surface to the human instead of guessing.
@@ -80,7 +80,7 @@ into READ / SKIM / KILL quadrants with an explicit low-confidence band.
   streaks. Sibilla filters; your existing tools read.
 - ❌ **Not a search engine.** No "ask questions about papers" — that job
   belongs to LLMs with retrieval, and doing it here would double the scope.
-- ❌ **No summarization.** Jev does not generate text by design; the
+- ❌ **No summarization.** The judge does not generate text by design; the
   treemap shows titles + links + scores. Digest prose is out of scope for
   v0 (revisit in v2, see roadmap).
 

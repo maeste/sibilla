@@ -4,7 +4,8 @@
 
 Sibilla is a personal research radar that filters the daily flood of AI/tech
 content (arXiv, Hacker News, Reddit, X) through **what you actually build**,
-using [TypeSafe AI's Jev](https://docs.typesafe.ai/) — a System One model —
+using a **System One judge backend** (reference: [CLM][clm] running
+locally; [TypeSafe AI's Jev][jev] is a supported hosted alternative) —
 as a fast, cheap, calibrated judge.
 
 ## The problem
@@ -22,11 +23,12 @@ you say you want** (declared interests) or **what you already read**
    and recent commits describe your active work better than any
    self-declared preference list — and it requires zero maintenance.
 2. **System One economics unlock the design.** Judging 1,750 items/week with
-   a traditional LLM costs ~$59/year even with a mini model. With Jev
+   a traditional LLM costs ~$59/year even with a mini model. With a
+   local System One judge it is free; with hosted Jev
    (typed answers, free output tokens, state packed once per request) the
    same workload costs **~$1.43/year**. A 42x gap changes what is worth
    building.
-3. **Calibrated confidence belongs in the UI.** Jev returns probabilities
+3. **Calibrated confidence belongs in the UI.** The judge returns probabilities
    calibrated against outcomes. Sibilla renders low-confidence judgments as
    an explicit "you look here" zone instead of hiding uncertainty.
 
@@ -47,7 +49,7 @@ A single self-contained HTML treemap, delivered daily (cron → Telegram):
 | [00 – Vision](docs/00-VISION.md) | Problem, thesis, non-goals |
 | [01 – Architecture](docs/01-ARCHITECTURE.md) | Components, data flow, repo layout |
 | [02 – Sources](docs/02-SOURCES.md) | Source plugins & per-source JudgeConfig |
-| [03 – Jev Judge](docs/03-JEV-JUDGE.md) | State construction, primitives, fan-out, cost model |
+| [03 – Judge](docs/03-JUDGE.md) | Pluggable backends (CLM local / Jev hosted), state construction, primitives, cost model |
 | [04 – Visual](docs/04-VISUAL.md) | Treemap spec, quadrants, confidence zone, delivery |
 | [05 – Roadmap](docs/05-ROADMAP.md) | Phases, risks, validation criteria |
 
@@ -59,3 +61,6 @@ Implementation follows the roadmap in [05 – Roadmap](docs/05-ROADMAP.md).
 ## License
 
 See [LICENSE](LICENSE).
+
+[clm]: https://github.com/Contrastive-LM/CLM
+[jev]: https://docs.typesafe.ai/

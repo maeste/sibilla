@@ -10,7 +10,7 @@
                       │                PIPELINE                 │
                       │                                         │
  ┌──────────┐  fetch  │  ┌────────┐   ┌───────────┐   ┌──────┐ │  render  ┌─────────┐
- │  SOURCES │ ──────▶ │  │ NORMAL │──▶│  JEV      │──▶│ MAP  │ │ ───────▶ │ treemap │
+ │  SOURCES │ ──────▶ │  │ NORMAL │──▶│  JUDGE    │──▶│ MAP  │ │ ───────▶ │ treemap │
  │ (plugins)│         │  │ IZE    │   │  JUDGE    │   │ BUIL │ │          │ .html   │
  └──────────┘         │  └────────┘   └───────────┘   └──┬───┘ │          └─────────┘
    arxiv / hn /       │      │              ▲            │     │               ▲
@@ -33,9 +33,10 @@ Five stages, each independently testable:
 2. **Normalize** — heterogeneous items → common `Item` shape (id, title,
    body-ref, url, author, ts, source, metadata).
 3. **State** — deterministic builder produces the judgment state from
-   GitHub + `RADAR.md` (see [03](03-JEV-JUDGE.md#state-construction)).
-4. **Judge** — per-source JudgeConfig runs Jev over packed batches; typed
-   verdicts land in the store (see [03](03-JEV-JUDGE.md)).
+   GitHub + `RADAR.md` (see [03](03-JUDGE.md#state-construction)).
+4. **Judge** — per-source JudgeConfig runs the pluggable judge backend
+   (reference: local CLM) over the items; typed
+   verdicts land in the store (see [03](03-JUDGE.md)).
 5. **Map build** — dedup engine clusters cross-source echoes; scoring
    formula + thresholds assign quadrant + treemap geometry (see
    [04](04-VISUAL.md)).
@@ -72,8 +73,10 @@ sibilla/
 │   │   ├── builder.py       # gh api → profile state (deterministic)
 │   │   └── radar_md.py      # RADAR.md override parsing
 │   ├── judge/
-│   │   ├── client.py        # TypeSafe SDK wrapper, retries, rate-limit aware
-│   │   ├── packer.py        # fan-out packing (state + N items / request)
+│   │   ├── base.py          # JudgeBackend protocol + question/answer types
+│   │   ├── clm.py           # CLM backend (local, TypeSafe-compatible API)
+│   │   ├── typesafe.py      # TypeSafe Jev backend (hosted alternative)
+│   │   ├── packer.py        # per-backend scheduling (batch vs fan-out)
 │   │   └── configs.py       # JudgeConfig registry (one per source)
 │   ├── sources/
 │   │   ├── base.py          # SourcePlugin protocol + JudgeConfig dataclass
@@ -101,9 +104,10 @@ items(id TEXT PK, source TEXT, native_id TEXT, fetched_at INT,
 verdicts(id INTEGER PK, item_id TEXT, state_hash TEXT,
          judgeconfig_version TEXT,
          scores JSON,          -- {"relevance": 7.2, "novelty": 0.81, ...}
-         confidences JSON,     -- per-primitive confidence from Jev
+         confidences JSON,     -- per-primitive confidence from the judge
          created_at INT,
-         UNIQUE(item_id, state_hash, judgeconfig_version))
+         UNIQUE(item_id, state_hash, judgeconfig_version,
+                backend, model))   -- backend+model in the key: A/B across judges
 
 state_versions(hash TEXT PK, payload TEXT, built_at INT)
 
@@ -118,16 +122,17 @@ compare quadrants → measure how much profile changes move the needle.
 
 | Failure | Handling |
 |---------|----------|
-| Jev 429 / outage | SDK backoff; pipeline degrades to last verdicts; map renders with `stale` badge |
+| Judge backend down | Backend-specific backoff; pipeline degrades to last verdicts; map renders with `stale` badge |
 | Source API down | Per-source isolation; map renders with remaining sources + missing-source note |
 | State builder fails (gh auth) | Fall back to last good state; loud warning in map header |
 | Poisoned item (huge body) | Packer truncates to per-source char budget; flagged `truncated` |
 
 ## Security & privacy
 
-- Item bodies and state stay **local** (SQLite); only titles/abstracts +
-  state text transit to the Jev API. No third-party services beyond the
-  source APIs and TypeSafe.
+- Item bodies and state stay **local** (SQLite). With the reference CLM
+  backend nothing transits anywhere: source APIs in, everything else
+  stays on the machine. The hosted TypeSafe backend receives
+  titles/abstracts + state text — opt into it consciously.
 - X source credentials live in env vars, never in the store.
 - Session-like secrets never enter the map HTML (it is meant to be
   shareable/exportable).

@@ -23,7 +23,7 @@ wording, thresholds and quadrant cuts are all per-source.
 @dataclass(frozen=True)
 class JudgeConfig:
     version: str
-    char_budget: int                       # max chars per item sent to Jev
+    char_budget: int                       # max chars per item sent to the judge
     questions: list[Question]              # primitives (see 03)
     quadrant_thresholds: dict[str, float]  # READ/SKIM/KILL cuts on the
                                            #   source's composite score
@@ -97,7 +97,7 @@ after judging, before map build):
 1. **Deterministic keys first:** normalized URL (strip UTM), arXiv ID
    regex, GitHub repo full name. Catches most echoes at zero cost.
 2. **Semantic residual:** for items sharing a deterministic key OR scoring
-   READ/SKIM, a Jev `noul`-style pairwise question — "do these two items
+   READ/SKIM, a judge `noul`-style pairwise question — "do these two items
    report the same underlying artifact/result?" — clusters the rest.
    Pairwise on candidates only, not O(n²) on everything.
 3. **Cluster node** inherits `max(scores)` and the richest body (paper >
