@@ -76,7 +76,10 @@ class StateConfig:
 @dataclass
 class JudgeConfigSettings:
     backend: str = "clm"  # clm | typesafe (per docs/03)
-    base_url: str = "http://127.0.0.1:8700"
+    # None → each backend's default (CLM: http://127.0.0.1:8700,
+    # typesafe: https://api.typesafe.ai). A CLM-specific default here would
+    # silently point a typesafe backend at localhost (dogfooding bug).
+    base_url: str | None = None
     api_key_env: str | None = "CLM_API_KEY"
     model: str = "clm-latest"
     temperature: float = 1.0

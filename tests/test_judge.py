@@ -224,3 +224,86 @@ def test_registry_versions_are_per_source():
     for src in ("arxiv", "hackernews", "reddit", "x"):
         cfg = jcfgs.get_config(src)
         assert cfg.source == src and cfg.version and cfg.char_budget > 0 and cfg.questions
+
+
+# ------------------------------------------------- backend defaults & health
+
+
+def test_typesafe_config_without_base_url_reaches_typesafe(monkeypatch):
+    """Dogfooding regression: an omitted base_url must NOT inherit the CLM
+    loopback default — a typesafe config pointed at localhost:8700 reports
+    'backend down' while really pointing at the wrong host."""
+    from sibilla.config import Config, JudgeConfigSettings
+    from sibilla.pipeline import make_backend
+
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    cfg = Config.__new__(Config)  # minimal shell; make_backend only reads cfg.judge
+    cfg.judge = JudgeConfigSettings(backend="typesafe", api_key_env="TYPESAFE_API_KEY")
+    backend = make_backend(cfg)
+    assert backend.base_url == "https://api.typesafe.ai"  # the class default wins
+    assert backend.api_key is None  # env var absent — health will say exactly that
+
+
+def test_backend_defaults_by_class(monkeypatch):
+    from sibilla.config import Config, JudgeConfigSettings
+    from sibilla.pipeline import make_backend
+
+    monkeypatch.setenv("TYPESAFE_API_KEY", "k")
+    cfg = Config.__new__(Config)
+    cfg.judge = JudgeConfigSettings(backend="typesafe", model="jev-latest", api_key_env="TYPESAFE_API_KEY")
+    ts = make_backend(cfg)
+    assert ts.base_url == "https://api.typesafe.ai" and ts.api_key == "k" and ts.model == "jev-latest"
+
+    cfg.judge = JudgeConfigSettings(backend="clm")  # CLM default: loopback
+    clm = make_backend(cfg)
+    assert clm.base_url == "http://127.0.0.1:8700"
+
+
+def test_health_detail_distinguishes_auth_from_outage():
+    """'backend down' must say WHY — missing key, 401, or unreachable."""
+    import requests as rq
+
+    class _Resp:
+        def __init__(self, status):
+            self.status_code = status
+            self.ok = status < 400
+
+    class _Sess:
+        def __init__(self, behavior):
+            self.behavior = behavior
+
+        def get(self, url, timeout=None):
+            if self.behavior == "refused":
+                raise rq.ConnectionError("refused")
+            return _Resp(self.behavior)
+
+    jev_missing_key = TypesafeBackend(session=_Sess(200))  # no api_key
+    ok, reason = jev_missing_key.health_detail()
+    assert not ok and "api key missing" in reason and "TYPESAFE_API_KEY" in reason
+
+    jev_401 = TypesafeBackend(api_key="bad", session=_Sess(401))
+    ok, reason = jev_401.health_detail()
+    assert not ok and "auth failed" in reason and "401" in reason
+
+    jev_down = TypesafeBackend(api_key="k", session=_Sess("refused"))
+    ok, reason = jev_down.health_detail()
+    assert not ok and "unreachable" in reason
+
+    jev_up = TypesafeBackend(api_key="k", session=_Sess(200))
+    ok, reason = jev_up.health_detail()
+    assert ok and reason == ""
+
+    # a 404 on /health still falls back to / (playground) — old semantics kept
+    jev_404_health = TypesafeBackend(api_key="k", session=_Sess(404))
+    ok, reason = jev_404_health.health_detail()
+    assert not ok and "404" in reason
+
+
+def test_run_report_backend_reason_in_summary():
+    from sibilla.pipeline import RunReport
+
+    report = RunReport(
+        date_label="2026-09-27", backend_down=True, backend_reason="api key missing — export TYPESAFE_API_KEY"
+    )
+    assert "api key missing" in report.summary()
+    assert "BACKEND DOWN" in report.summary()

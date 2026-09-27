@@ -63,7 +63,7 @@ def test_missing_file_uses_defaults(tmp_path):
     cfg = load_config(tmp_path / "nope.yaml")
     assert cfg.window_hours == 24
     assert cfg.judge.backend == "clm"
-    assert cfg.judge.base_url == "http://127.0.0.1:8700"
+    assert cfg.judge.base_url is None  # the backend class carries its own default
     assert cfg.sources.arxiv.categories == ["cs.AI", "cs.CL", "cs.LG"]
 
 

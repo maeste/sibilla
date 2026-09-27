@@ -15,4 +15,5 @@ class TypesafeBackend(HttpJudgeBackend):
     packs_items = True  # Jev shape: ~170 items per packed request
     default_base_url = "https://api.typesafe.ai"
     default_api_key_env = "TYPESAFE_API_KEY"
+    requires_api_key = True  # the SDK key is mandatory — missing key = auth problem
     input_cost_per_mtok = 0.042

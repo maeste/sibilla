@@ -35,6 +35,7 @@ class MapMeta:
     outages: list[str] = field(default_factory=list)  # "reddit: unreachable — ..."
     stale_state: bool = False
     backend_down: bool = False
+    backend_reason: str = ""  # why: unreachable vs auth vs key missing
     revived: int = 0
     pending: int = 0  # fetched in window but unjudged — the map must say why it's empty
     window: tuple[int, int] = (0, 0)
@@ -193,7 +194,8 @@ def build_map_data(meta: MapMeta, nodes: list[dict[str, Any]]) -> dict[str, Any]
     if meta.stale_state:
         banners.append("state rebuild failed — using last good state")
     if meta.backend_down:
-        banners.append("judge backend down — map renders last verdicts (stale)")
+        reason = f" ({meta.backend_reason})" if meta.backend_reason else ""
+        banners.append(f"judge backend down{reason} — map renders last verdicts (stale)")
     return {
         "meta": {
             "title": f"SIBILLA — {meta.date_label}",

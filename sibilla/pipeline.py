@@ -46,6 +46,7 @@ class RunReport:
     outages: list[str] = field(default_factory=list)
     stale_state: bool = False
     backend_down: bool = False
+    backend_reason: str = ""  # why the backend is down: unreachable vs auth vs key missing
     state_hash: str = ""
 
     def summary(self) -> str:
@@ -60,7 +61,7 @@ class RunReport:
         if self.stale_state:
             parts.append("STATE STALE (last good used)")
         if self.backend_down:
-            parts.append("BACKEND DOWN (last verdicts)")
+            parts.append(f"BACKEND DOWN ({self.backend_reason or 'last verdicts'})")
         for o in self.outages:
             parts.append(f"OUTAGE {o}")
         if self.map_path:
@@ -354,6 +355,7 @@ def build_map(cfg: Config, store: Store, backend: JudgeBackend, report: RunRepor
         outages=list(report.outages),
         stale_state=report.stale_state,
         backend_down=report.backend_down,
+        backend_reason=report.backend_reason,
         revived=len([lab for lab in store.labels(since=start_ts) if lab["label"] == "revive"]),
         pending=len(items) - len(judged_items),  # fetched but unjudged: the empty map must say why
         window=(start_ts, end_ts),
@@ -386,7 +388,8 @@ def run_cycle(
         report = RunReport(date_label=label, window_hours=window_hours, source_overrides=dict(source_overrides or {}))
 
         backend = make_backend(cfg)
-        backend_up = backend.health() if hasattr(backend, "health") else True
+        detail = getattr(backend, "health_detail", None)
+        backend_up, backend_reason = detail() if detail else (True, "")
 
         report.fetched, report.outages = fetch_and_normalize(cfg, store, end, window_hours, report.source_overrides)
 
@@ -395,6 +398,7 @@ def run_cycle(
         report.stale_state = stale
 
         backend_down = not backend_up
+        report.backend_reason = backend_reason
         if backend_up:
             try:
                 report.judged, report.judge_errors = judge_pending(cfg, store, backend, state_hash, state_text)

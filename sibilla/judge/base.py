@@ -158,6 +158,7 @@ class HttpJudgeBackend:
     packs_items = False
     default_base_url = ""
     default_api_key_env: str | None = None
+    requires_api_key = False  # typesafe: True — a missing key is auth, not downtime
     input_cost_per_mtok = 0.0  # output tokens are free on both documented backends
 
     def __init__(
@@ -220,14 +221,31 @@ class HttpJudgeBackend:
         return Ranked([max(0.0, min(1.0, float(p))) for p in probs], int(usage.get("input_tokens") or 0))
 
     def health(self) -> bool:
+        ok, _reason = self.health_detail()
+        return ok
+
+    def health_detail(self) -> tuple[bool, str]:
+        """(up, reason) — "down" must say WHY: unreachable, unauthorized or key missing.
+
+        A hosted backend whose key is absent is an auth problem, not an
+        outage; the run summary and the map banner carry the distinction.
+        """
+        if self.requires_api_key and not self.api_key:
+            env = self.default_api_key_env or "the configured api_key_env"
+            return False, f"api key missing — export {env} ({self.base_url})"
+        last = "no healthy endpoint"
         for path in ("/health", "/"):
             try:
                 resp = self.session.get(self.base_url + path, timeout=5)
-                if resp.ok:
-                    return True
-            except requests.RequestException:
-                continue
-        return False
+            except requests.RequestException as exc:
+                return False, f"unreachable at {self.base_url} ({type(exc).__name__})"
+            if resp.ok:
+                return True, ""
+            if resp.status_code in (401, 403):  # definitive on either path
+                env = self.default_api_key_env or "the configured api_key_env"
+                return False, f"auth failed (HTTP {resp.status_code}) — check {env} / key validity"
+            last = f"HTTP {resp.status_code} at {self.base_url}{path}"  # try the fallback path
+        return False, last
 
     def cost_usd(self, input_tokens: int | None) -> float:
         if input_tokens is None:
