@@ -178,6 +178,104 @@ def test_window_anchored_at_delivery_hour():
     assert (end - start).total_seconds() == 24 * 3600
 
 
+def test_source_window_precedence():
+    """--source-window > --window-hours > per-source window: > global window:."""
+    from sibilla.config import ArxivConfig, RedditConfig, SourcesConfig
+    from sibilla.pipeline import source_window_hours
+
+    cfg = Config(
+        window_hours=24,
+        sources=SourcesConfig(arxiv=ArxivConfig(window_hours=96), reddit=RedditConfig(window_hours=48)),
+    )
+    assert source_window_hours(cfg, "arxiv") == 96  # per-source config
+    assert source_window_hours(cfg, "reddit") == 48
+    assert source_window_hours(cfg, "hackernews") == 24  # falls back to global
+    assert source_window_hours(cfg, "arxiv", window_hours=168) == 168  # --window-hours beats yaml
+    assert source_window_hours(cfg, "reddit", source_overrides={"reddit": 12}) == 12  # --source-window wins
+    assert source_window_hours(cfg, "arxiv", window_hours=168, source_overrides={"arxiv": 192}) == 192
+
+
+def test_fetch_uses_per_source_windows(pipeline_env, sample_raw_items, monkeypatch):
+    """arXiv fetches with its own wider window; HN/Reddit with theirs."""
+    from sibilla.config import ArxivConfig
+    from sibilla.pipeline import fetch_and_normalize
+
+    captured: dict[str, datetime] = {}
+
+    class RecordingStub(StubSource):
+        def __init__(self, name, items=None):
+            super().__init__(items)
+            self.name = name
+
+        def fetch(self, since):
+            captured[self.name] = since
+            return self.items
+
+    cfg = pipeline_env
+    cfg.sources.arxiv = ArxivConfig(window_hours=96)
+    registry = {
+        "arxiv": lambda cfg: RecordingStub("arxiv", sample_raw_items["arxiv"]),
+        "hackernews": lambda cfg: RecordingStub("hackernews", sample_raw_items["hackernews"]),
+        "reddit": lambda cfg: RecordingStub("reddit", sample_raw_items["reddit"]),
+        "x": lambda cfg: RecordingStub("x", []),
+    }
+    monkeypatch.setattr("sibilla.pipeline.sources_registry", lambda: registry)
+
+    end = datetime(2026, 9, 27, 6, 0, tzinfo=timezone.utc)
+    fetch_and_normalize(cfg, Store(cfg.db_path), end)
+    assert captured["arxiv"] == end - timedelta(hours=96)
+    assert captured["hackernews"] == end - timedelta(hours=24)
+    assert captured["reddit"] == end - timedelta(hours=24)
+    # --source-window wins for the named source only
+    fetch_and_normalize(cfg, Store(cfg.db_path), end, source_overrides={"arxiv": 192})
+    assert captured["arxiv"] == end - timedelta(hours=192)
+    assert captured["hackernews"] == end - timedelta(hours=24)
+
+
+def test_map_includes_arxiv_within_its_own_window(pipeline_env, sample_raw_items, monkeypatch):
+    """A paper published 48h ago shows up when arXiv's window is 96h — not at a flat 24h."""
+    from sibilla.config import ArxivConfig
+    from sibilla.store import Store
+
+    old_paper = RawItem(
+        source="arxiv",
+        native_id="2609.00042v1",
+        title="Weekend paper",
+        url="https://arxiv.org/abs/2609.00042v1",
+        author="A",
+        published=datetime.now(timezone.utc) - timedelta(hours=48),
+        body="Listed with a lag.",
+    )
+    cfg = pipeline_env
+    cfg.sources.arxiv = ArxivConfig(window_hours=96)
+    registry = {
+        "arxiv": lambda cfg: StubSource([old_paper]),
+        "hackernews": lambda cfg: StubSource([]),
+        "reddit": lambda cfg: StubSource([]),
+        "x": lambda cfg: StubSource([]),
+    }
+    monkeypatch.setattr("sibilla.pipeline.sources_registry", lambda: registry)
+    run_cycle(cfg)  # fetch + judge with the per-source windows
+
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    store = Store(cfg.db_path)
+    try:
+        import sibilla.pipeline as pl  # resolve the (patched) make_backend at call time
+
+        report = RunReport(date_label=today)
+        build_map(cfg, store, pl.make_backend(cfg), report)
+        html96 = open(report.map_path, encoding="utf-8").read()
+        assert "Weekend paper" in html96  # 48h old, inside arXiv's 96h window
+
+        # a flat 24h window drops it — honest, not hidden
+        report24 = RunReport(date_label=today, window_hours=24)
+        build_map(cfg, store, pl.make_backend(cfg), report24)
+        html24 = open(report24.map_path, encoding="utf-8").read()
+        assert "Weekend paper" not in html24
+    finally:
+        store.close()
+
+
 def test_window_future_date_clamps_to_now():
     cfg = Config(delivery=DeliveryConfig(hour=6))
     _, end, _ = window_for(cfg, "2099-01-01")

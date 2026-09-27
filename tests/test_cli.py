@@ -177,6 +177,33 @@ def test_weekly_recap_window(cli_env, capsys):
     assert main(["map", "--window-hours", "168", "--date", datetime.now(timezone.utc).strftime("%Y-%m-%d")]) == 0
 
 
+def test_source_window_parsing():
+    from sibilla.cli import parse_source_window
+
+    assert parse_source_window(None) == {}
+    assert parse_source_window("arxiv=192") == {"arxiv": 192}
+    assert parse_source_window("arxiv=192, hackernews=48") == {"arxiv": 192, "hackernews": 48}
+    for bad in ("arxiv", "arxiv=", "=192", "arxiv=0", "arxiv=-5", "nope=24", "arxiv=abc"):
+        with pytest.raises(SystemExit):
+            parse_source_window(bad)
+
+
+def test_cold_start_source_window_flag(cli_env, capsys, monkeypatch):
+    """`run --source-window arxiv=192` reaches the pipeline as a per-source override."""
+    captured: dict = {}
+
+    real_run_cycle = pipeline_mod.run_cycle
+
+    def spy(cfg, **kw):
+        captured.update(kw)
+        return real_run_cycle(cfg, **kw)
+
+    monkeypatch.setattr(cli_mod, "run_cycle", spy)
+    assert main(["run", "--source-window", "arxiv=192"]) == 0
+    assert captured["source_overrides"] == {"arxiv": 192}
+    capsys.readouterr()
+
+
 def test_unknown_item_revive_fails_cleanly(cli_env, capsys):
     assert main(["revive", "arxiv:nope"]) == 1
 

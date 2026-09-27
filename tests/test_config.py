@@ -72,3 +72,17 @@ def test_unknown_keys_tolerated(tmp_path):
     p.write_text("sources:\n  future_thing: 1\njudge:\n  note: hi\n", encoding="utf-8")
     cfg = load_config(p)  # must not raise
     assert cfg.judge.backend == "clm"
+
+
+def test_per_source_windows(tmp_path):
+    """`window:` inside a source block → window_hours (docs/02 example)."""
+    p = tmp_path / "sibilla.yaml"
+    p.write_text(
+        "window: 24\nsources:\n  arxiv:\n    window: 96\n  hackernews:\n    window: 24\n",
+        encoding="utf-8",
+    )
+    cfg = load_config(p)
+    assert cfg.sources.arxiv.window_hours == 96
+    assert cfg.sources.hackernews.window_hours == 24
+    assert cfg.sources.reddit.window_hours is None  # falls back to global
+    assert cfg.window_hours == 24

@@ -18,17 +18,23 @@ DEFAULT_CONFIG_PATH = "sibilla.yaml"
 @dataclass
 class ArxivConfig:
     categories: list[str] = field(default_factory=lambda: ["cs.AI", "cs.CL", "cs.LG"])
+    # Per-source fetch/map window (hours). arXiv lists with a lag and goes
+    # quiet over weekends — the example config ships 96h here; None falls
+    # back to the global `window`.
+    window_hours: int | None = None
 
 
 @dataclass
 class HackerNewsConfig:
     min_points: int = 40
+    window_hours: int | None = None  # per-source window; None → global `window`
 
 
 @dataclass
 class RedditConfig:
     subreddits: list[str] = field(default_factory=lambda: ["LocalLLaMA", "MachineLearning", "agents"])
     min_upvotes: int = 50
+    window_hours: int | None = None  # per-source window; None → global `window`
 
 
 @dataclass
@@ -38,6 +44,7 @@ class XConfig:
     bridge_url: str | None = None
     export_path: str | None = None
     bearer_token_env: str = "X_BEARER_TOKEN"
+    window_hours: int | None = None  # per-source window; None → global `window`
 
 
 @dataclass
@@ -144,14 +151,18 @@ def _build_sources(data: dict[str, Any] | None) -> SourcesConfig:
         return src
     known = {"arxiv", "hackernews", "reddit", "x", "enabled"}
     for key, value in data.items():
-        if key == "arxiv":
-            src.arxiv = _build_dataclass(ArxivConfig, value)
-        elif key == "hackernews":
-            src.hackernews = _build_dataclass(HackerNewsConfig, value)
-        elif key == "reddit":
-            src.reddit = _build_dataclass(RedditConfig, value)
-        elif key == "x":
-            src.x = _build_dataclass(XConfig, value)
+        if key in ("arxiv", "hackernews", "reddit", "x"):
+            block = dict(value or {})
+            if "window" in block:  # YAML spells it `window:`; the field is window_hours
+                block["window_hours"] = block.pop("window")
+            setattr(
+                src,
+                key,
+                _build_dataclass(
+                    {"arxiv": ArxivConfig, "hackernews": HackerNewsConfig, "reddit": RedditConfig, "x": XConfig}[key],
+                    block,
+                ),
+            )
         elif key == "enabled":
             src.enabled = {str(k): bool(v) for k, v in (value or {}).items()}
         elif key not in known:

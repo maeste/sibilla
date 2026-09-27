@@ -219,9 +219,7 @@ def sample_raw_items() -> dict[str, list[RawItem]]:
     from the cycle and the cluster assertions fail.
     """
     arxiv_id = "2609.77777"
-    cutoff = datetime.now().astimezone().replace(
-        hour=6, minute=0, second=0, microsecond=0
-    )
+    cutoff = datetime.now().astimezone().replace(hour=6, minute=0, second=0, microsecond=0)
     if cutoff > datetime.now().astimezone():
         # before 06:00: today's window ends at 06:00, but window_for() only
         # runs cycles with end <= now, so anchor to the cutoff that already
