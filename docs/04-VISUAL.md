@@ -14,8 +14,9 @@ biggest rectangle = biggest problem = delete first. Sibilla's translation:
 
 ## Layout
 
-Single-file HTML (`sibemap-<date>.html`), inline JS/CSS, d3-hierarchy +
-d3-treemap, no network calls at view time (links only).
+Single-file HTML (`sibilla-<date>.html`), inline JS/CSS, d3-hierarchy
+(vendored, inlined at render time — never CDN), no network calls at view
+time (links only).
 
 ```
 ┌───────────────────────────────────────────────────────────────────┐
@@ -48,7 +49,8 @@ d3-treemap, no network calls at view time (links only).
 **Clusters** (dedup output) render as one node: the richest body wins
 (arXiv paper > HN thread > tweet), sibling sources become badges. An echo
 with ≥2 sources gets a mild area boost — multi-source convergence is
-itself a relevance signal, computed deterministically.
+itself a relevance signal, computed deterministically: area ×
+`(1 + 0.1 × (n_sources − 1))`, capped at 1.3.
 
 **Tooltip** (hover/click): title, authors/handle, one-line source excerpt,
 exact scores with confidences, all mirror links. No generated prose —
@@ -85,10 +87,14 @@ cron (Hermes) 06:30
 ```
 
 - Delivery: Telegram file (HTML renders in-browser on tap).
-- Weekly recap (Monday): same treemap for the week + KILL-area trend +
-  spend ledger line ("$0.19 this week").
+- Weekly recap (Monday): `sibilla map --window-hours 168` — same treemap
+  for the week + KILL-area trend + spend ledger line ("$0.19 this week").
 - `sibilla map --date 2026-09-20` regenerates any past day from the
   store — the map is a pure function of the DB.
+- **Closing the label loop**: the map's *export labels* button downloads
+  the READ/SKIM/KILL/revive clicks as JSON; `sibilla tune --import
+  labels.json` lands them in the store as training examples (see
+  [03 – Judge](03-JUDGE.md#fine-tuning-the-sibilla-tune-loop)).
 
 ## Accessibility & degenerate cases
 

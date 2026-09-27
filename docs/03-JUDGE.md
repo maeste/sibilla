@@ -45,14 +45,19 @@ class JudgeBackend(Protocol):
 `judge/system_one()` is used for the per-item verdicts; `judge/rank()` is
 the dedup engine's similarity primitive (see [Dedup via rank](#dedup-via-rank)).
 
-Config lives in `[judge]` of the Sibilla config:
+Config lives in the `judge:` block of `sibilla.yaml` (one file, see
+[02 – Sources](02-SOURCES.md#source-config-file-draft)):
 
-```toml
-[judge]
-backend = "clm"                # "clm" | "typesafe" (| future backends)
-base_url = "http://127.0.0.1:8700"
-api_key_env = "CLM_API_KEY"    # optional; unset for a local instance
-model = "clm-latest"           # head selection (per-source overrides below)
+```yaml
+judge:
+  backend: clm                # clm | typesafe (| future backends)
+  base_url: http://127.0.0.1:8700
+  api_key_env: CLM_API_KEY    # optional; unset for a local instance
+  model: clm-latest           # head selection
+  temperature: 1.0
+  concurrency: 4              # fan-out workers (CLM shape)
+  pack_size: 170              # items per packed request (Jev shape)
+  semantic_dedup: false       # v2: rank() clustering on candidate pairs
 ```
 
 ## Backends
@@ -184,9 +189,11 @@ Each source's JudgeConfig defines its questions. Common shape:
 | substance | noul | "Concrete verifiable signal vs. opinion churn?" (HN/X) | KILL override |
 | kind | choice | source-specific taxonomy | routing rules |
 
-Composite score per source: `size_score = relevance` (primary);
-READ/SKIM/KILL per the source's thresholds, with hard overrides
-(`kind: drama` → KILL regardless of score).
+Composite score per source: `size_score = relevance` (primary); READ/SKIM/KILL per the source's thresholds, with hard overrides
+(`kind: drama` → KILL regardless of score). On arXiv the applicability
+question is the READ boost, folded into the composite as
+`0.7 × relevance + 0.3 × applicability`; every other source composites on
+relevance alone.
 
 ## Fan-out scheduling
 
@@ -275,7 +282,12 @@ closes the loop:
 
 The loop is what turns "generic System One model" into "a judge trained
 on what *you* actually read" — and it stays optional: the reference head
-is already usable zero-shot.
+is already usable zero-shot. Wiring: `sibilla tune --train` (export +
+run + drop) reads `judge.finetune_cmd` (a command template with
+`{dataset}` / `{head_out}` placeholders, e.g.
+`python /path/to/CLM/train/finetune.py --data {dataset} --out {head_out}`)
+and `judge.ckpt_dir`; unset `finetune_cmd` leaves the dataset for a
+manual run without failing.
 
 ## Dedup via rank
 

@@ -55,8 +55,43 @@ A single self-contained HTML treemap, delivered daily (cron → Telegram):
 
 ## Status
 
-🚧 Design phase — this repository currently contains the design documents.
-Implementation follows the roadmap in [05 – Roadmap](docs/05-ROADMAP.md).
+🚧 **Implemented (v0 → v2 code complete)** — the full pipeline per the
+design docs: arXiv/HN/Reddit/X sources with per-source JudgeConfigs, the
+pluggable judge (local CLM reference + hosted TypeSafe Jev), deterministic
+state builder, echo dedup, single-file treemap with the human zone, tune
+loop and drift view. Dogfooding per the v0 exit criteria in
+[05 – Roadmap](docs/05-ROADMAP.md) starts now.
+
+## Quickstart
+
+```bash
+pip install -e ".[dev]"
+
+# 1. run the reference judge backend (docs/03): vLLM encoder + clm-serve
+vllm serve Qwen/Qwen3-8B --served-model-name qwen3-8b \
+  --runner pooling --max-model-len 8192 --port 8090
+clm-serve --max-tokens 8192 --port 8700
+
+# 2. configure
+cp sibilla.yaml.example sibilla.yaml   # set github_users, sources, judge
+export GITHUB_TOKEN=...                # optional, avoids the 60 req/h limit
+
+# 3. the daily loop
+sibilla run                            # fetch → normalize → state → judge → map
+sibilla map --date 2026-09-27          # regenerate any day — pure function of the DB
+sibilla state --history                # drift view
+sibilla run --window-hours 168         # weekly recap
+
+# 4. tune loop: click labels in the map → export labels → fit gates
+sibilla tune --import labels.json --fit
+
+# 5. delivery (optional): channel: telegram in sibilla.yaml, then
+sibilla run --deliver
+# crontab: 30 6 * * *  cd ~/radar && sibilla run --deliver
+```
+
+Without a backend the pipeline degrades loudly (stale badge), never
+silently. All state stays in the local SQLite (`sibilla.db`).
 
 ## License
 

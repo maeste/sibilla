@@ -1,0 +1,363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sibilla</title>
+<style>
+  :root {
+    --bg: #f4f2ee; --chrome: #ffffff; --ink: #1c1a17; --ink-dim: #6f6a62;
+    --line: #dedad2; --human: #d8d6d2; --human-ink: #4a4741;
+    --read: #1c1a17; --accent: #c2410c;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14130f; --chrome: #1d1b16; --ink: #e9e6df; --ink-dim: #97917f;
+            --line: #33302a; --human: #2a2823; --human-ink: #b5b0a4; --read: #e9e6df; }
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg); color: var(--ink);
+    font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif;
+    display: flex; flex-direction: column;
+  }
+  header { padding: 10px 16px 6px; background: var(--chrome); border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 15px; letter-spacing: .12em; font-weight: 700; }
+  header h1 .date { color: var(--ink-dim); font-weight: 500; letter-spacing: 0; }
+  header .stats { color: var(--ink-dim); font-size: 12px; margin-top: 2px; }
+  header .stats b { color: var(--ink); }
+  #banners { padding: 4px 16px; background: #fdf3d7; color: #6b5410; font-size: 12px; border-bottom: 1px solid var(--line); }
+  @media (prefers-color-scheme: dark) { #banners { background: #33301f; color: #d9c37a; } }
+  #canvas { flex: 1; position: relative; min-height: 0; }
+  .cell { position: absolute; overflow: hidden; }
+  .cell-label {
+    position: absolute; top: 4px; left: 8px; z-index: 2; pointer-events: none;
+    font-size: 11px; font-weight: 700; letter-spacing: .18em; color: var(--ink-dim);
+  }
+  .cell-label .thr { letter-spacing: 0; font-weight: 500; }
+  svg rect.node { stroke: rgba(0,0,0,.35); stroke-width: 1; cursor: pointer; }
+  @media (prefers-color-scheme: dark) { svg rect.node { stroke: rgba(0,0,0,.6); } }
+  svg rect.node.lowconf { stroke-dasharray: 4 3; stroke: var(--ink-dim); stroke-width: 1.5; }
+  svg rect.node.killed { stroke-width: .5; }
+  svg rect.novel-band {
+    fill: none; pointer-events: none;
+    stroke-dasharray: 1 2.5; stroke-width: 2;   /* novelty duplicated as a border pattern, never color-only */
+  }
+  svg text.nlabel {
+    fill: #fff; font: 11px system-ui, sans-serif; pointer-events: none;
+    paint-order: stroke; stroke: rgba(0,0,0,.45); stroke-width: 2.5px;
+  }
+  svg text.nlabel .glyph { font-weight: 700; }
+  .muted-cell svg rect.node { filter: saturate(.45) brightness(1.12); }
+  .human-cell { background: var(--human); border: 1px dashed var(--ink-dim); }
+  .human-cell .cell-label { color: var(--human-ink); }
+  .human-item { padding: 3px 6px; border-bottom: 1px solid rgba(128,128,128,.25); font-size: 12px; cursor: pointer; }
+  .human-item .src { color: var(--human-ink); font-size: 10px; margin-right: 4px; }
+  .pager { position: absolute; bottom: 4px; right: 8px; font-size: 11px; z-index: 2; }
+  .pager button { border: 1px solid var(--ink-dim); background: transparent; color: var(--human-ink); cursor: pointer; padding: 0 6px; }
+  .quiet, .allday {
+    position: absolute; inset: 0; display: flex; flex-direction: column; gap: 8px;
+    align-items: center; justify-content: center; text-align: center; padding: 24px;
+  }
+  .quiet .big, .allday .big { font-size: 18px; font-weight: 600; }
+  .quiet .small, .allday .small { color: var(--ink-dim); }
+  .killbar { font-size: 13px; color: var(--ink-dim); }
+  .killbar button { border: 1px solid var(--line); background: var(--chrome); color: var(--ink); cursor: pointer; padding: 2px 10px; }
+  #tooltip {
+    position: fixed; z-index: 50; max-width: 380px; display: none;
+    background: var(--chrome); border: 1px solid var(--line); border-radius: 6px;
+    box-shadow: 0 6px 24px rgba(0,0,0,.18); padding: 10px 12px; font-size: 12px;
+  }
+  #tooltip h3 { font-size: 13px; margin-bottom: 2px; }
+  #tooltip .by { color: var(--ink-dim); margin-bottom: 4px; }
+  #tooltip .badges { margin: 4px 0; }
+  #tooltip .badge {
+    display: inline-block; border: 1px solid var(--line); border-radius: 3px;
+    padding: 0 5px; margin-right: 4px; font-size: 10px; color: var(--ink-dim);
+  }
+  #tooltip .excerpt { color: var(--ink-dim); margin: 4px 0; max-height: 5.8em; overflow: hidden; }
+  #tooltip table { border-collapse: collapse; margin: 4px 0; }
+  #tooltip td { padding: 0 8px 0 0; font-size: 11px; color: var(--ink-dim); }
+  #tooltip td.v { color: var(--ink); font-weight: 600; }
+  #tooltip .links a { color: var(--accent); margin-right: 10px; text-decoration: none; }
+  #tooltip .verdict { font-size: 11px; color: var(--ink-dim); margin-top: 4px; }
+  #tooltip .lab { margin-top: 8px; }
+  #tooltip .lab button {
+    border: 1px solid var(--line); background: var(--bg); color: var(--ink);
+    font-size: 11px; padding: 2px 8px; margin-right: 4px; cursor: pointer; border-radius: 3px;
+  }
+  #tooltip .lab button.done { border-color: var(--accent); color: var(--accent); }
+  footer { padding: 4px 16px 8px; background: var(--chrome); border-top: 1px solid var(--line);
+           font-size: 11px; color: var(--ink-dim); display: flex; justify-content: space-between; }
+  footer button { border: 1px solid var(--line); background: transparent; color: var(--ink-dim); cursor: pointer; font-size: 11px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SIBILLA <span class="date">— <span id="hdate"></span></span></h1>
+  <div class="stats" id="hstats"></div>
+</header>
+<div id="banners" style="display:none"></div>
+<div id="canvas"></div>
+<footer>
+  <span id="fgate"></span>
+  <span><button id="export">export labels</button></span>
+</footer>
+<div id="tooltip"></div>
+<script>{{ d3_library | safe }}</script>
+<script>
+"use strict";
+const DATA = {{ data_json | safe }};
+const GATES = {{ gates_json | safe }};
+const M = DATA.meta, NODES = DATA.nodes;
+const SRC_LABEL = { arxiv: "arXiv", hackernews: "HN", reddit: "reddit", x: "X" };
+const labels = [];  // user clicks buffered for `sibilla tune --import`
+let killExpanded = false;
+let killFilter = "";  // docs/04: KILL is filterable by source
+
+const el = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g,
+  (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmt = (n) => Number(n).toLocaleString("en-US");
+
+function header() {
+  el("hdate").textContent = M.title.split("—").slice(1).join("—").trim();
+  el("hstats").innerHTML =
+    `state:${esc(M.state)} · sources: ${M.sources.map((s) => esc(SRC_LABEL[s] || s)).join(" ")}` +
+    ` · <b>${fmt(M.items)}</b> items · ${fmt(M.clusters)} clusters · ${esc(M.spend)} spent this cycle` +
+    (M.revived ? ` · ${M.revived} revived` : "");
+  el("fgate").textContent = `confidence gates: dashed ≥${GATES.low}, gray <${GATES.low} (per backend/model/config, fitted by sibilla tune)`;
+  if (M.banners.length) {
+    const b = el("banners");
+    b.style.display = "block";
+    b.innerHTML = M.banners.map((x) => "⚠ " + esc(x)).join("<br>");
+  }
+}
+
+function byQuadrant() {
+  const g = { READ: [], SKIM: [], KILL: [], HUMAN: [] };
+  for (const n of NODES) if (g[n.quadrant]) g[n.quadrant].push(n);
+  return g;
+}
+
+function shares(g) {
+  const sum = (a) => a.reduce((s, n) => s + n.size, 0);
+  const sR = sum(g.READ), sS = sum(g.SKIM), sK = sum(g.KILL), sH = sum(g.HUMAN);
+  const total = sR + sS + sK + sH;
+  const hasTop = g.READ.length + g.SKIM.length > 0;
+  let topShare = 0;
+  if (hasTop) {
+    const prop = (sR + sS) / Math.max(total - sH, 1e-9);
+    topShare = Math.min(0.40, Math.max(0.15, prop));   // KILL keeps most of the canvas by design
+  }
+  const human = g.HUMAN.length ? 0.10 : 0.0;           // the human zone: ~10% viewport, capped
+  return { topShare, human, hasTop };
+}
+
+function render() {
+  const canvas = el("canvas");
+  canvas.innerHTML = "";
+  const g = byQuadrant();
+  if (!NODES.length) {
+    canvas.innerHTML = `<div class="quiet"><div class="big">A quiet day.</div>` +
+      `<div class="small">No items in this window — the oracle has nothing to say.</div></div>`;
+    return;
+  }
+  const W = canvas.clientWidth, H = canvas.clientHeight;
+  const { topShare, human, hasTop } = shares(g);
+  if (!hasTop && !human) { renderAllKill(canvas, g, W, H); return; }
+  const topH = Math.round(H * topShare);
+  const humanW = human ? Math.min(0.38, human / Math.max(1 - topShare, 1e-9)) : 0;
+  const humanPx = human ? Math.round(W * humanW) : 0;
+
+  if (topH > 4) {
+    layoutCell(canvas, "READ", g.READ, 0, 0, Math.round(W / 2) - 1, topH, false, g.READ.length + g.SKIM.length === 0);
+    layoutCell(canvas, "SKIM", g.SKIM, Math.round(W / 2) + 1, 0, W - Math.round(W / 2) - 1, topH, true, g.READ.length + g.SKIM.length === 0);
+  }
+  const botY = topH > 4 ? topH + 1 : 0, botH = H - botY;
+  if (human) renderHuman(canvas, g.HUMAN, 0, botY, humanPx - 1, botH - 1);
+  layoutCell(canvas, "KILL", g.KILL, human ? humanPx + 1 : 0, botY, W - (human ? humanPx + 1 : 0), botH, false, false);
+}
+
+function renderAllKill(canvas, g, W, H) {
+  const killN = g.KILL.length;
+  canvas.innerHTML =
+    `<div class="allday"><div class="big">Nothing mattered today.</div>` +
+    `<div class="killbar">${fmt(killN)} killed — ` +
+    `<button id="showkill">show anyway</button></div>` +
+    `<div class="small">READ and SKIM are empty; KILL collapsed to this line.</div></div>`;
+  const holder = document.createElement("div");
+  holder.style.cssText = "position:absolute;inset:0;display:none";
+  canvas.appendChild(holder);
+  el("showkill").addEventListener("click", () => {
+    canvas.firstChild.style.display = "none";
+    holder.style.display = "block";
+    layoutCell(holder, "KILL", g.KILL, 0, 0, W, H, false, false);
+  });
+}
+
+function layoutCell(canvas, name, nodes, x, y, w, h, muted, collapseToLabel) {
+  const cell = document.createElement("div");
+  cell.className = "cell" + (name === "SKIM" ? " muted-cell" : "");
+  cell.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+  const isKill = name === "KILL";
+  const shown = isKill && killFilter ? nodes.filter((n) => n.sources.includes(killFilter)) : nodes;
+  const empty = !nodes.length || (isKill && !shown.length);
+  let label = `<div class="cell-label">${name}` +
+    (empty || collapseToLabel
+      ? ` <span class="thr">— empty${collapseToLabel ? " (nothing mattered here)" : ""}</span>`
+      : isKill
+        ? ` <span class="thr">(< thresholds) <button id="killtoggle" title="expand labels">${killExpanded ? "compact" : "aA"}</button>` +
+          ` <select id="killfilter"><option value="">all</option>` +
+          [...new Set(nodes.flatMap((n) => n.sources))].sort().map((s) =>
+            `<option value="${esc(s)}"${s === killFilter ? " selected" : ""}>${esc(SRC_LABEL[s] || s)}</option>`).join("") +
+          `</select></span>`
+        : ` <span class="thr">(≥ thresholds)</span>`) + `</div>`;
+  cell.innerHTML = label;
+  canvas.appendChild(cell);
+  const toggle = cell.querySelector("#killtoggle");
+  if (toggle) toggle.addEventListener("click", () => { killExpanded = !killExpanded; render(); });
+  const filter = cell.querySelector("#killfilter");
+  if (filter) filter.addEventListener("change", () => { killFilter = filter.value; render(); });
+  if (empty || collapseToLabel || !nodes.length) return;
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", w); svg.setAttribute("height", h);
+  cell.appendChild(svg);
+  const root = d3.hierarchy({ children: shown.map((n) => Object.assign({}, n)) })
+    .sum((d) => (d.children ? 0 : d.size))
+    .sort((a, b) => b.value - a.value);
+  d3.treemap().tile(d3.treemapSquarify).size([w, h]).paddingInner(2).round(true)(root);
+  const leaves = root.leaves();
+  for (const leaf of leaves) {
+    const n = leaf.data;
+    const rect = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+    rect.setAttribute("class", "node" + (n.confidence < GATES.high ? " lowconf" : "") + (isKill ? " killed" : ""));
+    rect.setAttribute("x", leaf.x0); rect.setAttribute("y", leaf.y0);
+    rect.setAttribute("width", Math.max(0, leaf.x1 - leaf.x0));
+    rect.setAttribute("height", Math.max(0, leaf.y1 - leaf.y0));
+    rect.setAttribute("fill", n.fill);
+    rect.addEventListener("mouseenter", (ev) => showTip(n, ev.clientX, ev.clientY));
+    rect.addEventListener("click", (ev) => showTip(n, ev.clientX, ev.clientY, true));
+    svg.appendChild(rect);
+    const w0 = leaf.x1 - leaf.x0, h0 = leaf.y1 - leaf.y0;
+    // docs/04 a11y: novelty duplicated in a dotted border pattern, in the node's own hue
+    if (n.novelty >= 0.7 && w0 > 8 && h0 > 8) {
+      const band = document.createElementNS("http://www.w3.org/2000/svg", "rect");
+      band.setAttribute("class", "novel-band");
+      band.setAttribute("x", leaf.x0 + 2); band.setAttribute("y", leaf.y0 + 2);
+      band.setAttribute("width", Math.max(0, w0 - 4)); band.setAttribute("height", Math.max(0, h0 - 4));
+      band.setAttribute("stroke", n.fill);
+      svg.appendChild(band);
+    }
+    if (w0 > 26 && h0 > 14) {
+      const t = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      t.setAttribute("class", "nlabel");
+      t.setAttribute("x", leaf.x0 + 4); t.setAttribute("y", leaf.y0 + 13);
+      const glyph = n.novelty >= 0.7 ? '<tspan class="glyph">▲ </tspan>' : "";
+      // KILL labels are collapsed to first letters by design; the aA toggle expands
+      const label2 = isKill && !killExpanded
+        ? esc(n.title.split(/\s+/).slice(0, 3).map((wd) => wd[0] || "").join(""))
+        : esc(n.title.slice(0, Math.max(4, Math.floor(w0 / 6.2))));
+      t.innerHTML = glyph + label2;
+      svg.appendChild(t);
+    }
+  }
+}
+
+function renderHuman(canvas, nodes, x, y, w, h) {
+  const cell = document.createElement("div");
+  cell.className = "cell human-cell";
+  cell.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px`;
+  cell.innerHTML = `<div class="cell-label">HUMAN ZONE <span class="thr">— you look here</span></div>`;
+  const page = { i: 0 };
+  const body = document.createElement("div");
+  body.style.cssText = "position:absolute;top:20px;bottom:22px;left:0;right:0;overflow:hidden";
+  cell.appendChild(body);
+  const draw = () => {
+    const slice = nodes.slice(page.i, page.i + 10);
+    body.innerHTML = slice.map((n) =>
+      `<div class="human-item" data-id="${esc(n.id)}">` +
+      `<span class="src">${n.sources.map((s) => esc(SRC_LABEL[s] || s)).join("+")}</span>` +
+      `${esc(n.title.slice(0, 90))}</div>`).join("");
+    for (const div of body.querySelectorAll(".human-item")) {
+      const n = nodes.find((q) => q.id === div.dataset.id);
+      div.addEventListener("click", (ev) => showTip(n, ev.clientX, ev.clientY, true));
+    }
+  };
+  const pager = document.createElement("div");
+  pager.className = "pager";
+  const redraw = () => {
+    pager.innerHTML = `<button data-d="-1">‹</button> ${Math.floor(page.i / 10) + 1}/${Math.ceil(nodes.length / 10)} ` +
+      `<button data-d="1">›</button>`;
+  };
+  pager.addEventListener("click", (ev) => {
+    const b = ev.target.closest("button");
+    if (!b) return;
+    page.i = Math.min(Math.max(page.i + 10 * Number(b.dataset.d), 0), Math.max(nodes.length - 10, 0));
+    draw(); redraw();
+  });
+  cell.appendChild(pager);
+  canvas.appendChild(cell);
+  draw(); redraw();
+}
+
+function showTip(n, cx, cy, sticky) {
+  const tip = el("tooltip");
+  const scores = Object.entries(n.scores).filter(([k]) => k !== "composite")
+    .map(([k, v]) =>
+      `<tr><td>${esc(k)}</td><td class="v">${esc(v)}</td><td>±${Number(n.confidences[k] ?? 1).toFixed(2)}</td></tr>`)
+    .join("");
+  const links = Object.entries(n.urls).filter(([, u]) => u)
+    .map(([s, u]) => `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(SRC_LABEL[s] || s)}</a>`).join("");
+  tip.innerHTML =
+    `<h3>${n.echo ? "⚡ " : ""}${esc(n.title)}</h3>` +
+    `<div class="by">${esc(n.author || "")}</div>` +
+    `<div class="badges">${n.sources.map((s) => `<span class="badge">${esc(SRC_LABEL[s] || s)}</span>`).join("")}` +
+    `${n.echo ? '<span class="badge">⚡ seen ' + n.sources.length + ' places</span>' : ""}` +
+    `${n.truncated ? '<span class="badge">truncated</span>' : ""}</div>` +
+    `<div class="excerpt">${esc(n.excerpt)}</div>` +
+    `<table><tr><td>composite</td><td class="v">${n.composite}</td><td>conf ${n.confidence.toFixed(2)}</td></tr>${scores}</table>` +
+    (links ? `<div class="links">${links}</div>` : "") +
+    `<div class="verdict">${esc(n.quadrant)} — ${esc(n.reason)}</div>` +
+    `<div class="lab">${["read", "skim", "kill", "revive"].map((l) =>
+        `<button data-l="${l}">${l}</button>`).join("")}</div>`;
+  for (const b of tip.querySelectorAll(".lab button")) {
+    const label = b.dataset.l;
+    if (labels.some((x) => x.item_id === n.id && x.label === label)) b.classList.add("done");
+    b.addEventListener("click", () => {
+      labels.push({ item_id: n.id, label, ts: new Date().toISOString() });
+      b.classList.add("done");
+    });
+  }
+  tip.style.display = "block";
+  const pad = 12;
+  let left = Math.min(cx + pad, window.innerWidth - tip.offsetWidth - pad);
+  let top = Math.min(cy + pad, window.innerHeight - tip.offsetHeight - pad);
+  tip.style.left = Math.max(pad, left) + "px";
+  tip.style.top = Math.max(pad, top) + "px";
+  if (!sticky) {
+    clearTimeout(showTip._t);
+    showTip._t = setTimeout(hideTip, 6000);
+  }
+}
+
+function hideTip() { el("tooltip").style.display = "none"; }
+
+document.addEventListener("click", (ev) => {
+  if (!ev.target.closest("#tooltip") && !ev.target.closest("rect.node") && !ev.target.closest(".human-item")) hideTip();
+});
+el("export").addEventListener("click", () => {
+  const blob = new Blob([JSON.stringify({ date: M.title, labels }, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "sibilla-labels.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+window.addEventListener("resize", () => { clearTimeout(render._t); render._t = setTimeout(render, 150); });
+
+header();
+render();
+</script>
+</body>
+</html>
