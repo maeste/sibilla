@@ -58,7 +58,7 @@ Five stages, each independently testable:
 5. **Single-file HTML output.** The deliverable is one self-contained
    `sibilla-YYYY-MM-DD.html` (inlined JS/CSS, no server).
 
-## Repository layout (planned)
+## Repository layout (implemented)
 
 ```
 sibilla/
@@ -66,32 +66,38 @@ sibilla/
 ├── docs/                    # this design documentation
 ├── pyproject.toml
 ├── sibilla/
-│   ├── cli.py               # `sibilla run`, `sibilla map`, `sibilla state`
+│   ├── cli.py               # `sibilla run`, `sibilla map`, `sibilla state`, `sibilla tune`, `sibilla revive`
+│   ├── config.py            # sibilla.yaml loading (sources / state / judge / delivery)
 │   ├── pipeline.py          # orchestration of the 5 stages
-│   ├── store.py             # sqlite: items, verdicts, state versions
+│   ├── store.py             # sqlite: items, verdicts, state versions, ledger, labels, calibrations
+│   ├── delivery.py          # telegram delivery (manual/open-the-file otherwise)
 │   ├── state/
 │   │   ├── builder.py       # gh api → profile state (deterministic)
 │   │   └── radar_md.py      # RADAR.md override parsing
 │   ├── judge/
-│   │   ├── base.py          # JudgeBackend protocol + question/answer types
+│   │   ├── base.py          # JudgeBackend protocol + question/answer types + wire client
 │   │   ├── clm.py           # CLM backend (local, TypeSafe-compatible API)
 │   │   ├── typesafe.py      # TypeSafe Jev backend (hosted alternative)
 │   │   ├── packer.py        # per-backend scheduling (batch vs fan-out)
-│   │   └── configs.py       # JudgeConfig registry (one per source)
+│   │   └── configs.py       # JudgeConfig registry (one per source) + scoring/routing
 │   ├── sources/
 │   │   ├── base.py          # SourcePlugin protocol + JudgeConfig dataclass
 │   │   ├── arxiv.py         # v0
 │   │   ├── hackernews.py    # v1
 │   │   ├── reddit.py        # v1
-│   │   └── twitter_x.py     # v2 (monitored-profiles list)
+│   │   └── twitter_x.py     # v2 (monitored-profiles list; pluggable transport)
 │   ├── dedup/
 │   │   └── cluster.py       # cross-source echo detection
 │   └── render/
-│       ├── treemap.py       # data → d3-hierarchy JSON
-│       └── template.html.j2 # single-file output
+│       ├── treemap.py       # data → node JSON + single-file HTML assembly
+│       ├── template.html.j2 # the map UI (layout at view time)
+│       └── vendor/d3-hierarchy.min.js  # vendored, inlined at render time — no CDN
 ├── tests/
 └── RADAR.md                 # optional manual interest override (user-edit)
 ```
+
+Deviations from the original sketch are recorded in the doc where they occur
+(d3 is vendored and layout runs at view time; config is one `sibilla.yaml`).
 
 ## Data model (SQLite)
 

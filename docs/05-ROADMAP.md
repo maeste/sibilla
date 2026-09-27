@@ -9,15 +9,16 @@
 
 Scope: one source, full loop, daily dogfood.
 
-- [ ] `store.py` — SQLite schema (items, verdicts, state_versions)
-- [ ] `state/builder.py` — GitHub → state text + `state_hash`
+- [x] `store.py` — SQLite schema (items, verdicts, state_versions + cost
+  ledger, labels, calibrations)
+- [x] `state/builder.py` — GitHub → state text + `state_hash`
   (gh CLI or REST; RADAR.md appended verbatim)
-- [ ] `sources/arxiv.py` — Atom fetch, 3 categories, 24h window
-- [ ] `judge/` — backend protocol + CLM backend (local) + packer + arXiv JudgeConfig
+- [x] `sources/arxiv.py` — Atom fetch, 3 categories, 24h window
+- [x] `judge/` — backend protocol + CLM backend (local) + packer + arXiv JudgeConfig
   (relevance / applicability / novelty)
-- [ ] `render/` — single-file treemap, quadrants + human zone v0
-- [ ] `cli.py` — `sibilla run`, `sibilla map`
-- [ ] Manual delivery (open the HTML) — cron integration comes later
+- [x] `render/` — single-file treemap, quadrants + human zone v0
+- [x] `cli.py` — `sibilla run`, `sibilla map`
+- [x] Manual delivery (open the HTML) — cron integration comes later
 
 **Exit criteria:** 7 consecutive days of personal use; ≥1 item/week that
 you'd have missed otherwise; KILL trust (no more than ~1 manual
@@ -25,32 +26,38 @@ you'd have missed otherwise; KILL trust (no more than ~1 manual
 
 ### v0.5 — Judgment hardening (+1 weekend)
 
-- [ ] Confidence band tuning against your own accept/reject behavior
-- [ ] Question wording A/B via JudgeConfig versions (diff quadrants on
+- [x] Confidence band tuning against your own accept/reject behavior
+  (`sibilla tune --import labels.json --fit`)
+- [x] Question wording A/B via JudgeConfig versions (diff quadrants on
   same state — the cache makes this free-ish)
-- [ ] Cost/latency ledger surfaced in map header
+- [x] Cost/latency ledger surfaced in map header
 
 **Exit criteria:** READ precision (of items you actually read) ≥ 60%.
 
 ### v1 — Multi-source + delivery (+2 weekends)
 
-- [ ] `sources/hackernews.py` (Algolia) + its JudgeConfig (substance /
+- [x] `sources/hackernews.py` (Algolia) + its JudgeConfig (substance /
   kind, drama-KILL)
-- [ ] `sources/reddit.py` (public JSON) + its JudgeConfig
-- [ ] Dedup engine v1 — deterministic keys only (URL/arXiv-id/repo name)
-- [ ] Hermes cron → Telegram daily 06:30 + weekly recap
+- [x] `sources/reddit.py` (public JSON) + its JudgeConfig
+- [x] Dedup engine v1 — deterministic keys only (URL/arXiv-id/repo name)
+- [x] Telegram delivery (CLI `--deliver`); wire the cron (06:30) in your
+  crontab/Hermes — a one-line ops step, no code left
+- [x] Weekly recap: `sibilla map --window-hours 168`
 
 **Exit criteria:** 14 days running unattended; cross-source echo visible
 ≥ 3×/week.
 
 ### v2 — X source + semantic dedup (scope check before build)
 
-- [ ] X transport decision with real numbers (official API vs bridge vs
-  export) — **go/no-go gate**, see risks
-- [ ] Monitored-profile list config
-- [ ] X JudgeConfig (substance / kind; aggressive ~90% KILL target)
-- [ ] Semantic dedup residual: judge `rank()` clustering on candidate pairs
-- [ ] Weekly drift view: state_hash history vs quadrant shifts
+- [x] X transport implemented behind the gate (api | bridge | export |
+  auto | off; default closed — enabling is the go/no-go decision with real
+  numbers, see risks)
+- [x] Monitored-profile list config
+- [x] X JudgeConfig (substance / kind; aggressive ~90% KILL target)
+- [x] Semantic dedup residual: judge `rank()` clustering on candidate pairs
+  (`judge.semantic_dedup: true`)
+- [x] Weekly drift view: `sibilla state --history` — state_hash history
+  vs quadrant shifts
 
 ## Risks & mitigations
 
