@@ -1,0 +1,60 @@
+# Sibilla configuration — HOSTED JEV variant.
+# Copy to sibilla.yaml and edit. Same shape as sibilla.yaml.example;
+# the judge block points at TypeSafe's hosted Jev instead of a local
+# CLM instance. Docs: docs/03-JUDGE.md (Backends, Cost model).
+#
+# Before running: export the API key (see Quickstart in the README):
+#   export TYPESAFE_API_KEY=...   # get one at https://typesafe.ai/
+
+window: 24                # hours a daily map covers (168 = weekly recap)
+db_path: sibilla.db
+output_dir: .             # where sibilla-YYYY-MM-DD.html lands
+
+sources:
+  arxiv:
+    categories: [cs.AI, cs.CL, cs.LG]
+  hackernews:
+    min_points: 40
+  reddit:
+    subreddits: [LocalLLaMA, MachineLearning, agents]
+    min_upvotes: 50
+  x:                      # v2 — behind the go/no-go gate (docs/05 risk R1)
+    profiles: []          # e.g. [karpathy, swyx]
+    transport: auto       # api | bridge | export | auto | off
+    # bridge_url: https://bridge.example
+    # export_path: tweets.json
+  enabled:                # any source can be disabled independently
+    arxiv: true
+    hackernews: true
+    reddit: true
+    x: false
+
+state:
+  github_users: [maeste]
+  github_orgs: []
+  # explicit owner/repo pins — always in the state, bypassing age/fork/archive
+  # filters. Deduplicated against the listings above.
+  # github_repos: [maeste/sibilla, RisorseArtificiali/lince]
+  # GitHub Enterprise: point all state-builder calls at the GHES instance
+  # github_api_url: https://ghe.example.com/api/v3
+  radar_md: RADAR.md      # optional manual override, appended verbatim
+
+judge:
+  backend: typesafe             # hosted Jev — no GPU, no local infra
+  api_key_env: TYPESAFE_API_KEY # env var holding the key; never put the key in this file
+  model: jev-latest
+  temperature: 1.0
+  concurrency: 2          # hosted: be polite, keep parallel requests low
+  pack_size: 170          # Jev shape: ~170 items per packed 64k request
+  semantic_dedup: false   # v2: judge rank() clustering on candidate pairs
+  rank_threshold: 0.75
+  # base_url omitted: defaults to https://api.typesafe.ai
+  # The CLM fine-tune block below is CLM-only; keep it commented on this backend.
+  # finetune_cmd: "python /path/to/CLM/train/finetune.py --data {dataset} --out {head_out}"
+  # ckpt_dir: /path/to/clm-serve/checkpoints
+
+delivery:
+  channel: none           # none (manual: open the HTML) | telegram
+  # token_env: TELEGRAM_BOT_TOKEN
+  # chat_id: "123456789"
+  hour: 6                 # daily cutoff anchoring the window (cron 06:30)
