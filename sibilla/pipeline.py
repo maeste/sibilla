@@ -355,6 +355,7 @@ def build_map(cfg: Config, store: Store, backend: JudgeBackend, report: RunRepor
         stale_state=report.stale_state,
         backend_down=report.backend_down,
         revived=len([lab for lab in store.labels(since=start_ts) if lab["label"] == "revive"]),
+        pending=len(items) - len(judged_items),  # fetched but unjudged: the empty map must say why
         window=(start_ts, end_ts),
     )
     nodes = treemap.build_nodes(judged_items, verdict_map, cluster_members, gates_for)

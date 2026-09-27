@@ -36,6 +36,7 @@ class MapMeta:
     stale_state: bool = False
     backend_down: bool = False
     revived: int = 0
+    pending: int = 0  # fetched in window but unjudged — the map must say why it's empty
     window: tuple[int, int] = (0, 0)
 
 
@@ -204,6 +205,7 @@ def build_map_data(meta: MapMeta, nodes: list[dict[str, Any]]) -> dict[str, Any]
             "counts": counts,
             "banners": banners,
             "revived": meta.revived,
+            "pending": meta.pending,
             "generated_at": datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z"),
         },
         "nodes": nodes,
