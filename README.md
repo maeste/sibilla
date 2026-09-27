@@ -62,6 +62,36 @@ state builder, echo dedup, single-file treemap with the human zone, tune
 loop and drift view. Dogfooding per the v0 exit criteria in
 [05 – Roadmap](docs/05-ROADMAP.md) starts now.
 
+## Prerequisites
+
+Sibilla itself is a plain Python package (`pip install -e ".[dev]"`,
+Python ≥ 3.10). The judge backend has heavier requirements and is
+**optional at install time** — without it the pipeline runs and degrades
+loudly (stale badge) instead of silently.
+
+**CLM backend (local, reference)** — see the
+[CLM repo](https://github.com/Contrastive-LM/CLM#installation) for full
+instructions:
+
+- **vLLM** serving the `Qwen/Qwen3-8B` embedding encoder — needs an
+  NVIDIA GPU (~16 GB VRAM) and a CUDA-enabled vLLM install
+  ([vLLM quickstart](https://docs.vllm.ai/en/latest/getting_started/quickstart.html))
+- **`clm-serve`** — `pip install contrastive-lm` (downloads the 75 MB
+  reference head on first run); runs on CPU or GPU
+- No GPU on this machine? See
+  [GPU topology](docs/03-JUDGE.md#gpu-topology): the encoder can run on
+  any GPU host in your tailnet (`--emb-url`).
+
+**TypeSafe Jev backend (hosted alternative)** — no local infra, just an
+API key from [typesafe.ai](https://typesafe.ai/); set `backend =
+"typesafe"` in `sibilla.yaml` and export the key per
+[03 – Judge](docs/03-JUDGE.md#backends). This is also the fallback when
+you don't want to run vLLM at all.
+
+Hardware summary: with a GPU on the machine or reachable over the
+network the weekly cycle takes minutes; all-CPU works but turns it into
+hours.
+
 ## Quickstart
 
 ```bash
