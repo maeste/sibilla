@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -196,14 +196,27 @@ def github_mock(monkeypatch):
 
 @pytest.fixture
 def sample_raw_items() -> dict[str, list[RawItem]]:
-    """One arXiv paper echoed by HN (same arXiv URL) + a standalone reddit post."""
+    """One arXiv paper echoed by HN (same arXiv URL) + a standalone reddit post.
+
+    Timestamps are anchored to the *inside of today's cycle window*
+    [cutoff-24h, cutoff), where cutoff = today at the delivery hour
+    (06:00 per Config default). Anchoring to ``now`` instead makes the
+    fixture a time bomb: run after 08:00 local time and "2 hours ago"
+    lands after the 06:00 cutoff, outside the window — items vanish
+    from the cycle and the cluster assertions fail.
+    """
     arxiv_id = "2609.77777"
-    now = datetime.now(timezone.utc)
+    cutoff = datetime.now().astimezone().replace(
+        hour=6, minute=0, second=0, microsecond=0
+    )
+    if cutoff > datetime.now().astimezone():
+        # before 06:00: today's window ends at 06:00, but window_for() only
+        # runs cycles with end <= now, so anchor to the cutoff that already
+        # passed: yesterday 06:00
+        cutoff -= timedelta(hours=24)
 
-    def ts(hours_ago: float) -> datetime:
-        from datetime import timedelta
-
-        return now - timedelta(hours=hours_ago)
+    def ts(hours_before_cutoff: float) -> datetime:
+        return cutoff - timedelta(hours=hours_before_cutoff)
 
     return {
         "arxiv": [
