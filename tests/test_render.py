@@ -189,3 +189,27 @@ def test_render_html_escapes_titles():
 def test_unjudged_items_never_enter_the_map(sample_items):
     nodes = build_nodes(sample_items, {}, {})  # nothing judged
     assert nodes == []
+
+
+def test_empty_map_says_why(sample_items):
+    """docs/04 honesty: fetched-but-unjudged ≠ quiet day. The data carries the
+    pending count; the template's quiet card names the cause and the fix."""
+    import json
+    import re
+
+    def embedded_meta(html: str) -> dict:
+        return json.loads(re.search(r"^const DATA = (.*?);$", html, re.M).group(1))["meta"]
+
+    meta_judged = MapMeta(date_label="2026-09-27", pending=0)
+    meta_pending = MapMeta(date_label="2026-09-27", pending=2)
+
+    quiet = render_html(build_map_data(meta_judged, []))
+    silent = render_html(build_map_data(meta_pending, []))
+
+    assert embedded_meta(quiet)["pending"] == 0
+    assert embedded_meta(silent)["pending"] == 2
+    # both card variants are in the template; the pending one names cause and fix
+    assert "A quiet day." in quiet
+    assert "The oracle is silent." in silent
+    assert "unjudged" in silent and "sibilla run" in silent
+    assert "nothing is lost" in silent  # the store keeps fetched items — no re-fetch anxiety

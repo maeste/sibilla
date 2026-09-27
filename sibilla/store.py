@@ -368,6 +368,13 @@ class Store:
         ).fetchone()
         return float(row["s"])
 
+    def judge_last_error(self) -> str | None:
+        """Most recent failed-call error text — surfaced in the run summary."""
+        row = self.conn.execute(
+            "SELECT error FROM judge_calls WHERE error IS NOT NULL ORDER BY created_at DESC, id DESC LIMIT 1"
+        ).fetchone()
+        return row["error"] if row else None
+
     def call_errors_between(self, start: int, end: int) -> int:
         row = self.conn.execute(
             "SELECT COUNT(*) AS n FROM judge_calls WHERE created_at BETWEEN ? AND ? AND error IS NOT NULL",

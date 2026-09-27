@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from sibilla.config import Config
 from sibilla.judge.base import Answer, Ranked
 from sibilla.judge.configs import get_config
 from sibilla.judge.packer import JudgeJob, Packer
@@ -264,3 +265,45 @@ def sample_raw_items() -> dict[str, list[RawItem]]:
             )
         ],
     }
+
+
+# ------------------------------------------------------- pipeline fixtures
+
+
+class StubSource:
+    name = "stub"
+
+    def __init__(self, items=None, error: Exception | None = None):
+        self.items = items or []
+        self.error = error
+
+    def fetch(self, since):
+        if self.error:
+            raise self.error
+        return self.items
+
+
+class FakeState:
+    def __init__(self, state_hash="deadbeef" * 8, text="ACTIVE WORK PROFILE (fake)"):
+        self.state_hash = state_hash
+        self.text = text
+        self.repos = []
+        self.radar_md_used = False
+
+
+@pytest.fixture
+def pipeline_env(tmp_path, monkeypatch, sample_raw_items):
+    """Stubbed sources + fake backend + fake state around a tmp store."""
+    cfg = Config(db_path=str(tmp_path / "p.db"), output_dir=str(tmp_path))
+    registry = {
+        "arxiv": lambda cfg: StubSource(sample_raw_items["arxiv"]),
+        "hackernews": lambda cfg: StubSource(sample_raw_items["hackernews"]),
+        "reddit": lambda cfg: StubSource(sample_raw_items["reddit"]),
+        "x": lambda cfg: StubSource([]),
+    }
+    monkeypatch.setattr("sibilla.pipeline.sources_registry", lambda: registry)
+    monkeypatch.setattr("sibilla.pipeline.make_backend", lambda cfg: FakeBackend())
+    from sibilla.state import builder as state_builder
+
+    monkeypatch.setattr(state_builder, "build_state", lambda *a, **kw: FakeState("cafe" * 16))
+    return cfg

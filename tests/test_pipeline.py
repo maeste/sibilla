@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
-import pytest
-from conftest import FakeBackend
+from conftest import FakeBackend, StubSource
 
 from sibilla.config import Config, DeliveryConfig
 from sibilla.pipeline import (
@@ -21,60 +20,6 @@ from sibilla.pipeline import (
 )
 from sibilla.sources.base import RawItem, SourceFetchError
 from sibilla.store import Store
-
-
-class StubSource:
-    name = "stub"
-
-    def __init__(self, items=None, error: Exception | None = None):
-        self.items = items or []
-        self.error = error
-
-    def fetch(self, since):
-        if self.error:
-            raise self.error
-        return self.items
-
-
-def _raw(native_id, source, title, url, body, age_h=1.0):
-    ts = datetime.now(timezone.utc).timestamp() - age_h * 3600
-    return RawItem(
-        source=source,
-        native_id=native_id,
-        title=title,
-        url=url,
-        author="a",
-        published=datetime.fromtimestamp(ts, tz=timezone.utc),
-        body=body,
-    )
-
-
-@pytest.fixture
-def pipeline_env(tmp_path, monkeypatch, sample_raw_items):
-    cfg = Config(db_path=str(tmp_path / "p.db"), output_dir=str(tmp_path))
-    registry = {
-        "arxiv": lambda cfg: StubSource(sample_raw_items["arxiv"]),
-        "hackernews": lambda cfg: StubSource(sample_raw_items["hackernews"]),
-        "reddit": lambda cfg: StubSource(sample_raw_items["reddit"]),
-        "x": lambda cfg: StubSource([]),
-    }
-    monkeypatch.setattr("sibilla.pipeline.sources_registry", lambda: registry)
-    monkeypatch.setattr("sibilla.pipeline.make_backend", lambda cfg: FakeBackend())
-    monkeypatch.setattr("sibilla.pipeline.state_builder.build_state", lambda *a, **kw: _fake_state())
-    return cfg
-
-
-class _FakeState:
-    state_hash = "deadbeef" * 8
-    text = "ACTIVE WORK PROFILE (fake)"
-
-    def __init__(self):
-        self.repos = []
-        self.radar_md_used = False
-
-
-def _fake_state():
-    return _FakeState()
 
 
 def test_run_cycle_end_to_end(pipeline_env, tmp_path):

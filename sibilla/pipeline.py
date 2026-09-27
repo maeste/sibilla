@@ -8,6 +8,7 @@ banner, never silently. The map is a pure function of the store.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -28,6 +29,8 @@ from sibilla.sources.base import RawItem, SourceFetchError, domain_of, item_text
 from sibilla.state import builder as state_builder
 from sibilla.store import ItemRow, Store, VerdictKey, VerdictRow
 
+log = logging.getLogger(__name__)
+
 STATE_MAX_AGE_S = 30 * 24 * 3600  # monthly refresh cadence (docs/03)
 
 
@@ -46,6 +49,8 @@ class RunReport:
     outages: list[str] = field(default_factory=list)
     stale_state: bool = False
     backend_down: bool = False
+    backend_reason: str = ""  # why the backend is down: unreachable vs auth vs key missing
+    judge_error_sample: str = ""  # first judge error of the cycle — the summary shows the why
     state_hash: str = ""
 
     def summary(self) -> str:
@@ -54,13 +59,14 @@ class RunReport:
             f"sibilla run {self.date_label}",
             f"fetched [{', '.join(bits) or 'nothing new'}]",
             f"judged {self.judged} (+{self.judge_errors} errors)",
+            *((f"first error: {self.judge_error_sample}",) if self.judge_error_sample else (())),
             f"{self.clusters} clusters",
             f"${self.spend_usd:.3f}",
         ]
         if self.stale_state:
             parts.append("STATE STALE (last good used)")
         if self.backend_down:
-            parts.append("BACKEND DOWN (last verdicts)")
+            parts.append(f"BACKEND DOWN ({self.backend_reason or 'last verdicts'})")
         for o in self.outages:
             parts.append(f"OUTAGE {o}")
         if self.map_path:
@@ -175,14 +181,19 @@ def fetch_and_normalize(
     for name in ("arxiv", "hackernews", "reddit", "x"):
         if not cfg.sources.is_enabled(name):
             continue
-        since = end - timedelta(hours=source_window_hours(cfg, name, window_hours, source_overrides))
+        window_h = source_window_hours(cfg, name, window_hours, source_overrides)
+        since = end - timedelta(hours=window_h)
+        started = time.monotonic()
+        log.info("fetch %s: window %dh …", name, window_h)
         try:
             raw_items: list[RawItem] = registry[name](**kwargs[name]).fetch(since)
         except SourceFetchError as exc:
             outages.append(f"{name}: unreachable — {exc}")
+            log.warning("fetch %s: failed in %.1fs — %s", name, time.monotonic() - started, exc)
             continue
         except Exception as exc:  # noqa: BLE001 — a plugin bug must not take down the cycle
             outages.append(f"{name}: fetch failed — {type(exc).__name__}: {exc}")
+            log.warning("fetch %s: failed in %.1fs — %s", name, time.monotonic() - started, exc)
             continue
         n = 0
         for raw in raw_items:
@@ -201,6 +212,7 @@ def fetch_and_normalize(
             if store.upsert_item(row):
                 n += 1
         counts[name] = n
+        log.info("fetch %s: %d new items in %.1fs", name, n, time.monotonic() - started)
     return counts, outages
 
 
@@ -354,7 +366,9 @@ def build_map(cfg: Config, store: Store, backend: JudgeBackend, report: RunRepor
         outages=list(report.outages),
         stale_state=report.stale_state,
         backend_down=report.backend_down,
+        backend_reason=report.backend_reason,
         revived=len([lab for lab in store.labels(since=start_ts) if lab["label"] == "revive"]),
+        pending=len(items) - len(judged_items),  # fetched but unjudged: the empty map must say why
         window=(start_ts, end_ts),
     )
     nodes = treemap.build_nodes(judged_items, verdict_map, cluster_members, gates_for)
@@ -385,28 +399,36 @@ def run_cycle(
         report = RunReport(date_label=label, window_hours=window_hours, source_overrides=dict(source_overrides or {}))
 
         backend = make_backend(cfg)
-        backend_up = backend.health() if hasattr(backend, "health") else True
+        detail = getattr(backend, "health_detail", None)
+        backend_up, backend_reason = detail() if detail else (True, "")
 
         report.fetched, report.outages = fetch_and_normalize(cfg, store, end, window_hours, report.source_overrides)
 
+        log.info("state: building/reusing …")
         state_hash, state_text, stale = ensure_state(cfg, store)
         report.state_hash = state_hash
         report.stale_state = stale
+        log.info("state: %s (%s)", state_hash[:12], "stale fallback — gh failed" if stale else "current")
 
         backend_down = not backend_up
+        report.backend_reason = backend_reason
         if backend_up:
             try:
                 report.judged, report.judge_errors = judge_pending(cfg, store, backend, state_hash, state_text)
+                if report.judge_errors:
+                    report.judge_error_sample = (store.judge_last_error() or "")[:160]
             except JudgeUnavailable:
                 backend_down = True
         report.backend_down = backend_down
 
         start_ts = widest_window_start(cfg, end, window_hours, report.source_overrides)
         report.clusters = build_clusters(cfg, store, backend if backend_up else None, start_ts, int(end.timestamp()))
+        log.info("dedup: %d clusters", report.clusters)
         report.spend_usd = store.spend_between(start_ts, int(time.time()))
 
         if deliver and cfg.delivery.channel != "telegram":
             report.delivery = "delivery channel not configured — open the HTML manually"
+        log.info("map: building …")
         build_map(cfg, store, backend, report)
         return report
     finally:

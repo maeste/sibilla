@@ -159,8 +159,17 @@ function render() {
   canvas.innerHTML = "";
   const g = byQuadrant();
   if (!NODES.length) {
-    canvas.innerHTML = `<div class="quiet"><div class="big">A quiet day.</div>` +
-      `<div class="small">No items in this window — the oracle has nothing to say.</div></div>`;
+    // docs/04 honesty: an empty canvas must say WHY — no items at all is a
+    // quiet day; fetched-but-unjudged items mean the judge is down, not that
+    // the world was quiet. Nothing is lost: the store keeps them.
+    const card = M.pending > 0
+      ? `<div class="big">The oracle is silent.</div>` +
+        `<div class="small">${fmt(M.pending)} items fetched in this window are unjudged — ` +
+        `the judge backend is down or hasn't run yet. Start it and \`sibilla run\` again: ` +
+        `nothing is lost, the store keeps every item.</div>`
+      : `<div class="big">A quiet day.</div>` +
+        `<div class="small">No items in this window — the oracle has nothing to say.</div>`;
+    canvas.innerHTML = `<div class="quiet">${card}</div>`;
     return;
   }
   const W = canvas.clientWidth, H = canvas.clientHeight;
