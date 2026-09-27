@@ -104,12 +104,13 @@ vllm serve Qwen/Qwen3-8B --served-model-name qwen3-8b \
 clm-serve --max-tokens 8192 --port 8700
 
 # 1b. ALTERNATIVE, no GPU/no local infra: hosted TypeSafe Jev instead.
-#     Same wire API, ~$1.43/year at Sibilla's volume. Skip step 1a and
-#     set in sibilla.yaml:
-#       judge:
-#         backend: typesafe   # api_key_env defaults to TYPESAFE_API_KEY
-#     then export the key (see docs/03 – Judge › Backends):
-export TYPESAFE_API_KEY=...
+#     Same wire API, ~$1.43/year at Sibilla's volume. Skip step 1a,
+#     export the API key, and start from the pre-populated Jev config
+#     (sibilla.yaml.example.jev — same shape as the example, judge
+#     block already set: backend typesafe, api_key_env TYPESAFE_API_KEY):
+export TYPESAFE_API_KEY=...                 # get one at https://typesafe.ai/
+cp sibilla.yaml.example.jev sibilla.yaml    # then edit github_users, sources
+#     (if you go 1b, step 2's cp is already done — just edit the file)
 
 # 2. configure
 cp sibilla.yaml.example sibilla.yaml   # set github_users, sources, judge
