@@ -122,6 +122,15 @@ sibilla map --date 2026-09-27          # regenerate any day — pure function of
 sibilla state --history                # drift view
 sibilla run --window-hours 168         # weekly recap
 
+#    Cold start (first run): backfill arXiv only — 192h without widening
+#    the real-time sources. Idempotent: the store dedups by native id and
+#    the verdict cache makes any re-fetch free.
+sibilla run --source-window arxiv=192
+
+#    Windows are per-source (arXiv 96h in the example config — listing lag
+#    + quiet weekends; HN/Reddit 24h). Precedence: --source-window >
+#    --window-hours > per-source window: > global window:.
+
 # 4. tune loop: click labels in the map → export labels → fit gates
 sibilla tune --import labels.json --fit
 

@@ -42,12 +42,24 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--deliver", action="store_true", help="deliver via the configured channel")
     run.add_argument("--rebuild-state", action="store_true", help="force a state rebuild")
     run.add_argument("--window-hours", type=int, default=None, help="override the fetch/map window (168 = weekly)")
+    run.add_argument(
+        "--source-window",
+        dest="source_window",
+        default=None,
+        help="per-source window override NAME=HOURS[,NAME=HOURS] — e.g. --source-window arxiv=192 (cold start)",
+    )
     run.set_defaults(func=_cmd_run)
 
     mp = sub.add_parser("map", parents=[common], help="rebuild the map for a date — a pure function of the DB")
     mp.add_argument("--date", default=None, help="map date YYYY-MM-DD (default: now)")
     mp.add_argument("--out", default=None, help="override output path for the HTML")
     mp.add_argument("--window-hours", type=int, default=None, help="override the map window (168 = weekly recap)")
+    mp.add_argument(
+        "--source-window",
+        dest="source_window",
+        default=None,
+        help="per-source window override NAME=HOURS[,NAME=HOURS] — e.g. --source-window arxiv=192",
+    )
     mp.set_defaults(func=_cmd_map)
 
     st = sub.add_parser("state", parents=[common], help="show or rebuild the interest-profile state")
@@ -81,9 +93,33 @@ def _cfg(args: argparse.Namespace) -> Config:
     return load_config(args.config)
 
 
+def parse_source_window(spec: str | None) -> dict[str, int]:
+    """Parse ``--source-window arxiv=192,hackernews=48`` → dict; raises on junk."""
+    if not spec:
+        return {}
+    out: dict[str, int] = {}
+    for part in spec.split(","):
+        name, _, hours = part.strip().partition("=")
+        name, hours = name.strip(), hours.strip()
+        if not name or not hours or not hours.isdigit() or int(hours) <= 0:
+            raise SystemExit(f"invalid --source-window entry {part!r} (expected NAME=HOURS, HOURS > 0)")
+        from sibilla.judge.configs import known_sources
+
+        if name not in known_sources():
+            raise SystemExit(f"unknown source {name!r} in --source-window (known: {', '.join(known_sources())})")
+        out[name] = int(hours)
+    return out
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     cfg = _cfg(args)
-    report = run_cycle(cfg, date_label=args.date, deliver=args.deliver, window_hours=args.window_hours)
+    report = run_cycle(
+        cfg,
+        date_label=args.date,
+        deliver=args.deliver,
+        window_hours=args.window_hours,
+        source_overrides=parse_source_window(args.source_window),
+    )
     print(report.summary())
     return 0
 
@@ -96,7 +132,11 @@ def _cmd_map(args: argparse.Namespace) -> int:
         backend = make_backend(cfg)
         from sibilla.pipeline import RunReport
 
-        report = RunReport(date_label=label, window_hours=args.window_hours)
+        report = RunReport(
+            date_label=label,
+            window_hours=args.window_hours,
+            source_overrides=parse_source_window(args.source_window),
+        )
         path = build_map(cfg, store, backend, report)
         if args.out and path is not None:
             target = Path(args.out)

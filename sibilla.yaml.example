@@ -1,21 +1,30 @@
 # Sibilla configuration — copy to sibilla.yaml and edit.
 # Shape per docs/02; the judge block per docs/03.
 
-window: 24                # hours a daily map covers (168 = weekly recap)
+window: 24                # default window (hours) for sources without their own
 db_path: sibilla.db
 output_dir: .             # where sibilla-YYYY-MM-DD.html lands
 
 sources:
   arxiv:
     categories: [cs.AI, cs.CL, cs.LG]
+    window: 96            # arXiv lists with a lag and goes quiet on weekends:
+                          # 24h would miss anything listed >1 day after
+                          # submission. Wider is safe — the store dedups by
+                          # native id, the verdict cache makes re-fetch free.
+                          # Cold start (first run, full backfill):
+                          #   sibilla run --source-window arxiv=192
   hackernews:
     min_points: 40
+    window: 24            # real-time source: 24h is enough
   reddit:
     subreddits: [LocalLLaMA, MachineLearning, agents]
     min_upvotes: 50
+    window: 24
   x:                      # v2 — behind the go/no-go gate (docs/05 risk R1)
     profiles: []          # e.g. [karpathy, swyx]
     transport: auto       # api | bridge | export | auto | off
+    # window: 24
     # bridge_url: https://bridge.example
     # export_path: tweets.json
   enabled:                # any source can be disabled independently

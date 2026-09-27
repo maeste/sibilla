@@ -35,6 +35,7 @@ STATE_MAX_AGE_S = 30 * 24 * 3600  # monthly refresh cadence (docs/03)
 class RunReport:
     date_label: str
     window_hours: int | None = None  # None → config default (24h); 168 = weekly recap
+    source_overrides: dict[str, int] = field(default_factory=dict)  # --source-window name=h
     fetched: dict[str, int] = field(default_factory=dict)
     judged: int = 0
     judge_errors: int = 0
@@ -91,7 +92,9 @@ def window_for(
 ) -> tuple[datetime, datetime, str]:
     """The window a daily map covers: ``window_hours`` ending at the delivery hour.
 
-    ``window_hours=168`` gives the weekly recap (docs/04 daily flow).
+    ``window_hours=168`` gives the weekly recap (docs/04 daily flow). The
+    start is the global default; per-source windows narrow/extend fetch and
+    map coverage per source (see ``source_window_hours``).
     """
     now = datetime.now().astimezone()
     if date_label:
@@ -105,11 +108,60 @@ def window_for(
     return start, end, end.strftime("%Y-%m-%d")
 
 
-def fetch_and_normalize(cfg: Config, store: Store, since: datetime) -> tuple[dict[str, int], list[str]]:
+def source_window_hours(
+    cfg: Config,
+    name: str,
+    window_hours: int | None = None,
+    source_overrides: dict[str, int] | None = None,
+) -> int:
+    """Effective window (hours) for one source — arXiv needs more than HN.
+
+    Precedence: ``--source-window name=h`` (CLI, per source) > ``--window-hours``
+    (CLI, global) > per-source ``window:`` in sibilla.yaml > global ``window:``.
+    arXiv lists with a lag and goes quiet over weekends, so it wants a wider
+    window than real-time sources; wider is always safe because the store
+    dedups by native id and the verdict cache makes re-fetches free.
+    """
+    if source_overrides and name in source_overrides:
+        return int(source_overrides[name])
+    if window_hours:
+        return int(window_hours)
+    src_cfg = getattr(cfg.sources, name, None)
+    per_source = getattr(src_cfg, "window_hours", None)
+    if per_source:
+        return int(per_source)
+    return cfg.window_hours
+
+
+def widest_window_start(
+    cfg: Config,
+    end: datetime,
+    window_hours: int | None = None,
+    source_overrides: dict[str, int] | None = None,
+) -> int:
+    """Earliest ts covered by the union of the per-source windows (clusters, spend, revived)."""
+    names = jcfgs.known_sources()
+    widest = max(
+        (source_window_hours(cfg, s, window_hours, source_overrides) for s in names),
+        default=cfg.window_hours,
+    )
+    return int((end - timedelta(hours=widest)).timestamp())
+
+
+def fetch_and_normalize(
+    cfg: Config,
+    store: Store,
+    end: datetime,
+    window_hours: int | None = None,
+    source_overrides: dict[str, int] | None = None,
+) -> tuple[dict[str, int], list[str]]:
     """Stages 1+2: pull raw items into the store, keyed by source-native ID.
 
-    Sources are isolated: one failing source records an outage note and the
-    pipeline continues with the rest (docs/01 failure table).
+    Each source fetches with its own window (arXiv 96h in the example config
+    vs 24h for real-time sources): idempotent by (source, native_id), so a
+    wide window only backfills, it never re-judges. Sources are isolated:
+    one failing source records an outage note and the pipeline continues
+    with the rest (docs/01 failure table).
     """
     registry = sources_registry()
     kwargs: dict[str, dict[str, Any]] = {
@@ -123,6 +175,7 @@ def fetch_and_normalize(cfg: Config, store: Store, since: datetime) -> tuple[dic
     for name in ("arxiv", "hackernews", "reddit", "x"):
         if not cfg.sources.is_enabled(name):
             continue
+        since = end - timedelta(hours=source_window_hours(cfg, name, window_hours, source_overrides))
         try:
             raw_items: list[RawItem] = registry[name](**kwargs[name]).fetch(since)
         except SourceFetchError as exc:
@@ -263,13 +316,23 @@ def latest_verdict(store: Store, item_id: str, backend_name: str, model: str) ->
 
 
 def build_map(cfg: Config, store: Store, backend: JudgeBackend, report: RunReport) -> Path | None:
-    """Stage 5b: the map, a pure function of the DB; optionally delivers."""
-    start, end, label = window_for(cfg, report.date_label, report.window_hours)
-    start_ts, end_ts = int(start.timestamp()), int(end.timestamp())
+    """Stage 5b: the map, a pure function of the DB; optionally delivers.
+
+    Each source contributes the items published inside its own window
+    (arXiv 96h in the example config vs 24h real-time sources) — the map
+    shows what this cycle's fetch actually covered, per source.
+    """
+    _, end, label = window_for(cfg, report.date_label, report.window_hours)
+    end_ts = int(end.timestamp())
+    start_ts = widest_window_start(cfg, end, report.window_hours, report.source_overrides)
     model = getattr(backend, "model", cfg.judge.model)
     latest = store.latest_state()
 
-    items = store.items_between(start_ts, end_ts)
+    items: list[ItemRow] = []
+    for name in jcfgs.known_sources():  # all known: yesterday's fetches still render
+        w_start = end_ts - source_window_hours(cfg, name, report.window_hours, report.source_overrides) * 3600
+        items.extend(store.items_between(w_start, end_ts, sources=[name]))
+    items.sort(key=lambda i: i.published or 0, reverse=True)
     pairs = [(item, latest_verdict(store, item.id, backend.name, model)) for item in items]
     judged_items = [i for i, v in pairs if v is not None]
     verdict_map = {i.id: v for i, v in pairs if v is not None}
@@ -309,18 +372,22 @@ def build_map(cfg: Config, store: Store, backend: JudgeBackend, report: RunRepor
 
 
 def run_cycle(
-    cfg: Config, date_label: str | None = None, deliver: bool = False, window_hours: int | None = None
+    cfg: Config,
+    date_label: str | None = None,
+    deliver: bool = False,
+    window_hours: int | None = None,
+    source_overrides: dict[str, int] | None = None,
 ) -> RunReport:
     """The full daily cycle (docs/01): the five stages in order."""
     store = Store(cfg.db_path)
     try:
-        start, end, label = window_for(cfg, date_label, window_hours)
-        report = RunReport(date_label=label, window_hours=window_hours)
+        _, end, label = window_for(cfg, date_label, window_hours)
+        report = RunReport(date_label=label, window_hours=window_hours, source_overrides=dict(source_overrides or {}))
 
         backend = make_backend(cfg)
         backend_up = backend.health() if hasattr(backend, "health") else True
 
-        report.fetched, report.outages = fetch_and_normalize(cfg, store, start)
+        report.fetched, report.outages = fetch_and_normalize(cfg, store, end, window_hours, report.source_overrides)
 
         state_hash, state_text, stale = ensure_state(cfg, store)
         report.state_hash = state_hash
@@ -334,10 +401,9 @@ def run_cycle(
                 backend_down = True
         report.backend_down = backend_down
 
-        report.clusters = build_clusters(
-            cfg, store, backend if backend_up else None, int(start.timestamp()), int(end.timestamp())
-        )
-        report.spend_usd = store.spend_between(int(start.timestamp()), int(time.time()))
+        start_ts = widest_window_start(cfg, end, window_hours, report.source_overrides)
+        report.clusters = build_clusters(cfg, store, backend if backend_up else None, start_ts, int(end.timestamp()))
+        report.spend_usd = store.spend_between(start_ts, int(time.time()))
 
         if deliver and cfg.delivery.channel != "telegram":
             report.delivery = "delivery channel not configured — open the HTML manually"

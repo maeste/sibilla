@@ -34,7 +34,9 @@ class JudgeConfig:
 ### `arxiv` — v0
 
 - **Fetch:** arXiv Atom API, categories from config (default cs.AI, cs.CL,
-  cs.LG), window = last 24h. Respect 1 req / 3s etiquette (volumes here are
+  cs.LG), window = per-source (96h in the example config — see
+  [Source config](#source-config-file-draft): arXiv's listing lag and quiet
+  weekends make 24h lossy). Respect 1 req / 3s etiquette (volumes here are
   trivial).
 - **Item body:** title + abstract (~350 tokens).
 - **JudgeConfig focus:** substance. Long-form, low-noise input.
@@ -111,15 +113,20 @@ per-source hack.
 
 ```yaml
 # sibilla.yaml
-window: 24h
+window: 24                # default window (hours) for sources without their own
 sources:
   arxiv:
     categories: [cs.AI, cs.CL, cs.LG]
+    window: 96            # arXiv lists with a lag and goes quiet on weekends —
+                          # a 24h fetch would miss anything listed late;
+                          # wider is safe (dedup by native id, verdict cache)
   hackernews:
     min_points: 40
+    window: 24
   reddit:
     subreddits: [LocalLLaMA, MachineLearning, agents]
     min_upvotes: 50
+    window: 24
   x:                        # v2
     profiles: [karpathy, swyx, ...]
     transport: auto         # api | bridge | export
@@ -133,3 +140,12 @@ delivery:
 
 Each source can be disabled independently; the pipeline never hard-depends
 on any single source being reachable.
+
+**Windows are per-source.** Fetch and map coverage resolve per source:
+`--source-window name=hours` (CLI) > `--window-hours` (CLI, global) >
+`window:` in the source block > the global `window:`. A cold start
+backfills arXiv only, without widening the real-time sources:
+
+```bash
+sibilla run --source-window arxiv=192
+```

@@ -6,21 +6,26 @@
 # Before running: export the API key (see Quickstart in the README):
 #   export TYPESAFE_API_KEY=...   # get one at https://typesafe.ai/
 
-window: 24                # hours a daily map covers (168 = weekly recap)
+window: 24                # default window (hours) for sources without their own
 db_path: sibilla.db
 output_dir: .             # where sibilla-YYYY-MM-DD.html lands
 
 sources:
   arxiv:
     categories: [cs.AI, cs.CL, cs.LG]
+    window: 96            # arXiv lag + weekend quiet: wider is safe (dedup + verdict cache)
+                          # cold start: sibilla run --source-window arxiv=192
   hackernews:
     min_points: 40
+    window: 24
   reddit:
     subreddits: [LocalLLaMA, MachineLearning, agents]
     min_upvotes: 50
+    window: 24
   x:                      # v2 — behind the go/no-go gate (docs/05 risk R1)
     profiles: []          # e.g. [karpathy, swyx]
     transport: auto       # api | bridge | export | auto | off
+    # window: 24
     # bridge_url: https://bridge.example
     # export_path: tweets.json
   enabled:                # any source can be disabled independently
