@@ -140,15 +140,27 @@ The state is the user's interest profile — **built deterministically,
 never generated**:
 
 ```
-build_state(github_users, github_orgs, radar_md_path) -> State
+build_state(github_users, github_orgs, github_repos, radar_md_path) -> State
 ```
 
-1. `gh api` / GitHub REST: for each repo (pushed within 6 months,
-   excluding forks/archived):
+1. `gh api` / GitHub REST. Three repo sources feed the state:
+   - `github_users` + `github_orgs`: every repo of each owner **filtered**
+     (pushed within `max_repo_age_months`, no forks/archived/disabled),
+     listing paginated through all pages
+   - `github_repos`: explicit `owner/repo` entries fetched directly —
+     **always included, bypassing every filter** (pin an old or archived
+     repo you still care about, or a private one invisible to the
+     listing), deduplicated by full name against the listings
+   - a listing repo explicitly named in `github_repos` appears once
+
+   **GitHub Enterprise:** `github_api_url` re-points every call (listings,
+   explicit repos, READMEs, commits) — e.g.
+   `https://ghe.example.com/api/v3`. The token must belong to that host.
+2. Per repo included by either source:
    - repo name + description + topics
    - README first section (up to ~800 chars, headings-stripped)
    - last 20 commit subjects
-2. Compact to a structured text (~4,000 tokens target):
+3. Compact to a structured text (~4,000 tokens target):
 
    ```
    ACTIVE WORK PROFILE (auto-generated from GitHub, 2026-09-26)

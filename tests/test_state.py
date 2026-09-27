@@ -25,6 +25,56 @@ def test_state_format_matches_docs(tmp_path, github_mock):
     assert "# Title" not in text
 
 
+def test_explicit_repos_bypass_filters(tmp_path, github_mock):
+    """github_repos entries are included even if old/archived, and dedup against listings."""
+    cfg = StateConfig(
+        github_users=["maeste"],
+        github_repos=["maeste/secret-sauce", "maeste/old-thing", "maeste/radar-core"],
+        radar_md=str(tmp_path / "absent.md"),
+    )
+    state = state_builder.build_state(cfg)
+    text = state.text
+    # old + not in listing: only reachable via explicit config — proves the bypass
+    assert "## maeste/secret-sauce — private experiments" in text
+    # archived listing repo, explicitly requested: filter bypassed, included once
+    assert "## maeste/old-thing — archived" in text
+    assert text.count("## maeste/radar-core") == 1  # dedup against the user listing
+    names = [r.full_name for r in state.repos]
+    assert len(names) == len(set(names))
+
+
+def test_explicit_repo_invalid_name_raises(tmp_path, github_mock):
+    cfg = StateConfig(github_repos=["just-a-name"], radar_md=str(tmp_path / "absent.md"))
+    with pytest.raises(state_builder.StateBuilderError, match="owner/repo"):
+        state_builder.build_state(cfg)
+
+
+def test_explicit_repo_unknown_is_skipped(tmp_path, github_mock):
+    cfg = StateConfig(github_repos=["maeste/ghost-repo"], radar_md=str(tmp_path / "absent.md"))
+    state = state_builder.build_state(cfg)  # 404 → skipped, no raise
+    assert state.repos == []
+
+
+def test_custom_github_api_url(tmp_path, github_mock, monkeypatch):
+    """GHES: state.github_api_url routes every call (listing, readme, commits)."""
+    seen: list[str] = []
+    real_get = state_builder.requests.Session.get
+
+    def spying_get(self, url, **kw):
+        seen.append(url)
+        return real_get(self, url, **kw)
+
+    monkeypatch.setattr(state_builder.requests.Session, "get", spying_get)
+    cfg = StateConfig(
+        github_users=["maeste"],
+        github_api_url="https://ghe.example.com/api/v3",
+        radar_md=str(tmp_path / "absent.md"),
+    )
+    state_builder.build_state(cfg)
+    assert seen, "builder made no calls"
+    assert all(u.startswith("https://ghe.example.com/api/v3/") for u in seen)
+
+
 def test_radar_md_appended_verbatim(tmp_path, github_mock):
     radar = tmp_path / "RADAR.md"
     radar.write_text("evaluating vector DBs for a Q4 project", encoding="utf-8")
