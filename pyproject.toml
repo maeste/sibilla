@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sibilla"
+version = "0.1.0"
+description = "Personal research radar: your repos as interest profile, a System One judge as filter, a treemap as interface."
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "Stefano Maestri" }]
+dependencies = [
+    "requests>=2.31",
+    "PyYAML>=6.0",
+    "Jinja2>=3.1",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+sibilla = "sibilla.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["sibilla*"]
+
+[tool.setuptools.package-data]
+"sibilla.render" = ["*.j2", "vendor/*.js"]
+
+[tool.ruff]
+line-length = 119
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

@@ -1,0 +1,18 @@
+# local state — never commit (docs/01: everything lands in the local SQLite)
+*.db
+*.db-wal
+*.db-shm
+
+# generated maps (shareable, but reproducible from the DB)
+sibilla-*.html
+sibilla-labels.json
+
+# python
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.venv/

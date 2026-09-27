@@ -1,0 +1,50 @@
+# Sibilla configuration — copy to sibilla.yaml and edit.
+# Shape per docs/02; the judge block per docs/03.
+
+window: 24                # hours a daily map covers (168 = weekly recap)
+db_path: sibilla.db
+output_dir: .             # where sibilla-YYYY-MM-DD.html lands
+
+sources:
+  arxiv:
+    categories: [cs.AI, cs.CL, cs.LG]
+  hackernews:
+    min_points: 40
+  reddit:
+    subreddits: [LocalLLaMA, MachineLearning, agents]
+    min_upvotes: 50
+  x:                      # v2 — behind the go/no-go gate (docs/05 risk R1)
+    profiles: []          # e.g. [karpathy, swyx]
+    transport: auto       # api | bridge | export | auto | off
+    # bridge_url: https://bridge.example
+    # export_path: tweets.json
+  enabled:                # any source can be disabled independently
+    arxiv: true
+    hackernews: true
+    reddit: true
+    x: false
+
+state:
+  github_users: [maeste]
+  github_orgs: []
+  radar_md: RADAR.md      # optional manual override, appended verbatim
+
+judge:
+  backend: clm            # clm (local, reference) | typesafe (hosted Jev)
+  base_url: http://127.0.0.1:8700
+  api_key_env: CLM_API_KEY  # optional; unset for a loopback instance
+  model: clm-latest
+  temperature: 1.0
+  concurrency: 4          # fan-out workers (CLM shape)
+  pack_size: 170          # items per packed request (TypeSafe shape)
+  semantic_dedup: false   # v2: judge rank() clustering on candidate pairs
+  rank_threshold: 0.75
+  # CLM fine-tune loop (docs/03) — optional: `sibilla tune --train`
+  # finetune_cmd: "python /path/to/CLM/train/finetune.py --data {dataset} --out {head_out}"
+  # ckpt_dir: /path/to/clm-serve/checkpoints
+
+delivery:
+  channel: none           # none (manual: open the HTML) | telegram
+  # token_env: TELEGRAM_BOT_TOKEN
+  # chat_id: "123456789"
+  hour: 6                 # daily cutoff anchoring the window (cron 06:30)
