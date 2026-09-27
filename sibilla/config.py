@@ -56,6 +56,10 @@ class SourcesConfig:
 class StateConfig:
     github_users: list[str] = field(default_factory=list)
     github_orgs: list[str] = field(default_factory=list)
+    github_repos: list[str] = field(
+        default_factory=list
+    )  # explicit owner/repo — always included, bypasses age/fork/archive filters
+    github_api_url: str = "https://api.github.com"  # point at GitHub Enterprise: https://ghe.example.com/api/v3
     radar_md: str = "RADAR.md"
     max_repo_age_months: int = 6
     readme_chars: int = 800

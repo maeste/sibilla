@@ -170,6 +170,15 @@ def github_mock(monkeypatch):
             "archived": True,
         },
     ]
+    # a repo NOT in the user's listing — reachable only via explicit github_repos
+    explicit_extra = {
+        "full_name": "maeste/secret-sauce",
+        "description": "private experiments",
+        "topics": ["private"],
+        "pushed_at": "2020-01-01T10:00:00Z",  # old on purpose: bypasses age filter
+        "fork": False,
+        "archived": False,
+    }
     commits = [{"commit": {"message": "fix wiki ingestion\n\nbody"}}, {"commit": {"message": "add compass scoring"}}]
 
     class FakeResp:
@@ -188,6 +197,10 @@ def github_mock(monkeypatch):
             return FakeResp(commits)
         if "/users/" in url or "/orgs/" in url:
             return FakeResp(repos)
+        # explicit single-repo endpoint: /repos/{owner}/{repo}
+        for r in repos + [explicit_extra]:
+            if url.endswith(f"/repos/{r['full_name']}"):
+                return FakeResp(r)
         return FakeResp(None, 404)
 
     monkeypatch.setattr(state_builder.requests.Session, "get", fake_get)
