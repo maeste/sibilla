@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
+import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -21,6 +23,7 @@ LABEL_VALUES = ("read", "skim", "kill", "revive")
 def main(argv: list[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
+    _setup_logging(getattr(args, "verbose", False))
     if not args.command:
         parser.print_help()
         return 1
@@ -33,6 +36,12 @@ def main(argv: list[str] | None = None) -> int:
 def _parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="sibilla", description="Personal research radar (see docs/)")
     p.add_argument("--version", action="version", version=f"sibilla {__version__}")
+    p.add_argument(
+        "--verbose",
+        "-v",
+        action="store_true",
+        help="DEBUG progress logging (stderr); SIBILLA_LOG=debug|info|warning overrides",
+    )
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--config", default=None, help="path to sibilla.yaml (default: ./sibilla.yaml)")
     p.add_argument("--config", default=None, help=argparse.SUPPRESS)  # also accepted before the verb
@@ -93,6 +102,23 @@ def _parser() -> argparse.ArgumentParser:
     pr.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
     pr.set_defaults(func=_cmd_prune)
     return p
+
+
+def _setup_logging(verbose: bool) -> None:
+    """Progress logging on stderr: INFO by default, --verbose/SIBILLA_LOG for more.
+
+    On long judge cycles the packer logs per-source start, ≤10 milestones and
+    an ok/errors line; fetch, state, dedup and map stages log their own beat.
+    Configures the `sibilla` logger only — idempotent across repeated CLI
+    calls, never touches the root logger.
+    """
+    level_name = os.environ.get("SIBILLA_LOG", "debug" if verbose else "info").lower()
+    lg = logging.getLogger("sibilla")
+    lg.setLevel(getattr(logging, level_name.upper(), logging.INFO))
+    if not lg.handlers:
+        handler = logging.StreamHandler(sys.stderr)
+        handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s", "%H:%M:%S"))
+        lg.addHandler(handler)
 
 
 def _cfg(args: argparse.Namespace) -> Config:

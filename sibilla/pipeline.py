@@ -8,6 +8,7 @@ banner, never silently. The map is a pure function of the store.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import time
 from dataclasses import dataclass, field
@@ -27,6 +28,8 @@ from sibilla.render import treemap
 from sibilla.sources.base import RawItem, SourceFetchError, domain_of, item_text, sources_registry
 from sibilla.state import builder as state_builder
 from sibilla.store import ItemRow, Store, VerdictKey, VerdictRow
+
+log = logging.getLogger(__name__)
 
 STATE_MAX_AGE_S = 30 * 24 * 3600  # monthly refresh cadence (docs/03)
 
@@ -178,14 +181,19 @@ def fetch_and_normalize(
     for name in ("arxiv", "hackernews", "reddit", "x"):
         if not cfg.sources.is_enabled(name):
             continue
-        since = end - timedelta(hours=source_window_hours(cfg, name, window_hours, source_overrides))
+        window_h = source_window_hours(cfg, name, window_hours, source_overrides)
+        since = end - timedelta(hours=window_h)
+        started = time.monotonic()
+        log.info("fetch %s: window %dh …", name, window_h)
         try:
             raw_items: list[RawItem] = registry[name](**kwargs[name]).fetch(since)
         except SourceFetchError as exc:
             outages.append(f"{name}: unreachable — {exc}")
+            log.warning("fetch %s: failed in %.1fs — %s", name, time.monotonic() - started, exc)
             continue
         except Exception as exc:  # noqa: BLE001 — a plugin bug must not take down the cycle
             outages.append(f"{name}: fetch failed — {type(exc).__name__}: {exc}")
+            log.warning("fetch %s: failed in %.1fs — %s", name, time.monotonic() - started, exc)
             continue
         n = 0
         for raw in raw_items:
@@ -204,6 +212,7 @@ def fetch_and_normalize(
             if store.upsert_item(row):
                 n += 1
         counts[name] = n
+        log.info("fetch %s: %d new items in %.1fs", name, n, time.monotonic() - started)
     return counts, outages
 
 
@@ -395,9 +404,11 @@ def run_cycle(
 
         report.fetched, report.outages = fetch_and_normalize(cfg, store, end, window_hours, report.source_overrides)
 
+        log.info("state: building/reusing …")
         state_hash, state_text, stale = ensure_state(cfg, store)
         report.state_hash = state_hash
         report.stale_state = stale
+        log.info("state: %s (%s)", state_hash[:12], "stale fallback — gh failed" if stale else "current")
 
         backend_down = not backend_up
         report.backend_reason = backend_reason
@@ -412,10 +423,12 @@ def run_cycle(
 
         start_ts = widest_window_start(cfg, end, window_hours, report.source_overrides)
         report.clusters = build_clusters(cfg, store, backend if backend_up else None, start_ts, int(end.timestamp()))
+        log.info("dedup: %d clusters", report.clusters)
         report.spend_usd = store.spend_between(start_ts, int(time.time()))
 
         if deliver and cfg.delivery.channel != "telegram":
             report.delivery = "delivery channel not configured — open the HTML manually"
+        log.info("map: building …")
         build_map(cfg, store, backend, report)
         return report
     finally:

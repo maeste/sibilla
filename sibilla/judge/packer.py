@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -20,6 +21,8 @@ from dataclasses import dataclass, field
 
 from sibilla.judge.base import Answer, JudgeError, JudgeUnavailable
 from sibilla.sources.base import JudgeConfig, truncate_to_budget
+
+log = logging.getLogger(__name__)
 
 LedgerFn = Callable[..., None]  # store.save_judge_call signature
 
@@ -80,14 +83,29 @@ class Packer:
     # ------------------------------------------------------------ private
 
     def _run_job(self, state: str, job: JudgeJob, result: JudgeResult) -> None:
+        total = len(job.item_ids)
+        shape = "packed" if getattr(self.backend, "packs_items", False) else f"fan-out ×{self.concurrency}"
+        log.info("judge %s: %d items (%s)", job.source, total, shape)
+        started = time.monotonic()
         if getattr(self.backend, "packs_items", False):
             self._run_packed(state, job, result)
         else:
             self._run_fanout(state, job, result)
+        errors = len(result.errors_by_item)
+        log.info(
+            "judge %s: done in %.1fs — %d ok, %d errors",
+            job.source,
+            time.monotonic() - started,
+            total - errors,
+            errors,
+        )
 
     def _run_packed(self, state: str, job: JudgeJob, result: JudgeResult) -> None:
-        """Jev shape: ~pack_size items ride in one request with the state."""
-        for start in range(0, len(job.item_ids), self.pack_size):
+        """Batch shape: ~pack_size items ride in one request with the state."""
+        total = len(job.item_ids)
+        done = 0
+        step = max(1, total // 10) if total >= 20 else total  # ≤10 progress lines per source
+        for start in range(0, total, self.pack_size):
             ids = job.item_ids[start : start + self.pack_size]
             texts = job.texts[start : start + self.pack_size]
             flags = job.truncated_flags[start : start + self.pack_size]
@@ -95,24 +113,25 @@ class Packer:
                 batch = self.backend.system_one_batch(  # type: ignore[attr-defined]
                     state, texts, job.config.questions, temperature=self.temperature
                 )
-            except JudgeUnavailable as exc:
+            except (JudgeUnavailable, JudgeError) as exc:
                 self._ledger_error(job, len(ids), exc)
                 for i, item_id in enumerate(ids):
                     result.errors_by_item[item_id] = str(exc)
                     result.truncated_by_item[item_id] = flags[i]
-                continue
-            except JudgeError as exc:
-                self._ledger_error(job, len(ids), exc)
-                for i, item_id in enumerate(ids):
-                    result.errors_by_item[item_id] = str(exc)
-                    result.truncated_by_item[item_id] = flags[i]
+                done += len(ids)
                 continue
             self._ledger_ok(job, len(ids), getattr(self.backend, "last_call", None))
             for i, item_id in enumerate(ids):
                 self._absorb(item_id, flags[i], batch[i], result)
+            done += len(ids)
+            if done < total and done % step < self.pack_size:
+                log.info("judge %s: %d/%d", job.source, done, total)
 
     def _run_fanout(self, state: str, job: JudgeJob, result: JudgeResult) -> None:
-        """CLM shape: one request per item; encoder amortized by the vector cache."""
+        """One request per item; concurrency bounds politeness/throughput."""
+        total = len(job.item_ids)
+        done = 0
+        step = max(1, total // 10) if total >= 20 else total  # ≤10 progress lines per source
 
         def one(idx: int) -> tuple[int, dict[str, Answer] | None, str | None]:
             try:
@@ -127,7 +146,7 @@ class Packer:
                 return idx, None, str(exc)
 
         with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
-            futures = [pool.submit(one, i) for i in range(len(job.item_ids))]
+            futures = [pool.submit(one, i) for i in range(total)]
             for fut in as_completed(futures):
                 idx, answers, error = fut.result()
                 item_id = job.item_ids[idx]
@@ -138,6 +157,9 @@ class Packer:
                 else:
                     result.answers_by_item[item_id] = answers or {}
                     self._ledger_ok(job, 1, getattr(self.backend, "last_call", None))
+                done += 1
+                if done < total and done % step == 0:
+                    log.info("judge %s: %d/%d", job.source, done, total)
 
     def _absorb(self, item_id: str, truncated: bool, answers: dict[str, Answer], result: JudgeResult) -> None:
         result.truncated_by_item[item_id] = truncated
