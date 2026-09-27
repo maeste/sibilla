@@ -97,10 +97,19 @@ hours.
 ```bash
 pip install -e ".[dev]"
 
-# 1. run the reference judge backend (docs/03): vLLM encoder + clm-serve
+# 1a. run the reference judge backend (docs/03): vLLM encoder + clm-serve.
+#     This needs an NVIDIA GPU. If you don't have one, skip to 1b.
 vllm serve Qwen/Qwen3-8B --served-model-name qwen3-8b \
   --runner pooling --max-model-len 8192 --port 8090
 clm-serve --max-tokens 8192 --port 8700
+
+# 1b. ALTERNATIVE, no GPU/no local infra: hosted TypeSafe Jev instead.
+#     Same wire API, ~$1.43/year at Sibilla's volume. Skip step 1a and
+#     set in sibilla.yaml:
+#       judge:
+#         backend: typesafe   # api_key_env defaults to TYPESAFE_API_KEY
+#     then export the key (see docs/03 – Judge › Backends):
+export TYPESAFE_API_KEY=...
 
 # 2. configure
 cp sibilla.yaml.example sibilla.yaml   # set github_users, sources, judge
