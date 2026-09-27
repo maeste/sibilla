@@ -32,6 +32,11 @@ sources:
 state:
   github_users: [maeste]
   github_orgs: []
+  # explicit owner/repo pins — always in the state, bypassing age/fork/archive
+  # filters. Deduplicated against the listings above.
+  # github_repos: [maeste/sibilla, RisorseArtificiali/lince]
+  # GitHub Enterprise: point all state-builder calls at the GHES instance
+  # github_api_url: https://ghe.example.com/api/v3
   radar_md: RADAR.md      # optional manual override, appended verbatim
 
 judge:
