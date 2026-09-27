@@ -24,8 +24,11 @@ def test_parse_score_clamps_to_scale():
 
 def test_parse_noul_probability_bounds():
     q = Question("novelty", "noul", "new?")
-    assert parse_answer(q, {"probability": 1.7}).value == 1.0
-    assert parse_answer(q, {"p": -0.2}).value == 0.0
+    assert parse_answer(q, {"noul": 1.7}).value == 1.0
+    assert parse_answer(q, {"noul": -0.2}).value == 0.0
+    # real wire has no confidence on noul: margin |2p−1|
+    assert parse_answer(q, {"noul": 1.0}).confidence == 1.0
+    assert parse_answer(q, {"noul": 0.5}).confidence == 0.0
 
 
 def test_parse_choice_never_leaves_the_taxonomy():
@@ -51,19 +54,21 @@ class _FakeResp:
         return self._payload
 
 
-def _wire_payload(items, questions):
-    def per_item(_text):
-        out = {}
-        for q in questions:
-            if q.primitive == "score":
-                out[q.id] = {"value": 5.0, "confidence": 0.8}
-            elif q.primitive == "noul":
-                out[q.id] = {"probability": 0.5, "confidence": 0.8}
-            else:
-                out[q.id] = {"choice": q.options[0], "probabilities": {q.options[0]: 1.0}, "confidence": 0.8}
-        return out
+def _wire_answer(q):
+    if q.primitive == "score":
+        return {"type": "score", "score": 5.0, "confidence": 0.8}
+    if q.primitive == "noul":
+        return {"type": "noul", "noul": 0.5}
+    return {"type": "choice", "choice": q.options[0], "confidence": 0.8, "probabilities": {q.options[0]: 1.0}}
 
-    return {"answers": [per_item(t) for t in items], "usage": {"input_tokens": 640, "output_tokens": 0}}
+
+def _wire_payload(content, questions):
+    # real TypeSafe v0.2: one content per request, answers keyed by question name
+    return {
+        "model": "jev-latest",
+        "answers": {q.id: _wire_answer(q) for q in questions},
+        "usage": {"input_tokens": 640, "output_tokens": 0},
+    }
 
 
 def test_http_backend_wire_roundtrip(monkeypatch):
@@ -92,34 +97,87 @@ class _Session:
 
         _Session.last_post = {"url": url, "body": _json.loads(data), "headers": headers}
         body = _Session.last_post["body"]
-        return _FakeResp(self.responder(body["items"], [Question(**{**_unwire(q)}) for q in body["questions"]]))
+        questions = [Question(**{**_unwire(name, q)}) for name, q in body["questions"].items()]
+        return _FakeResp(self.responder(body["state"], questions))
 
     def get(self, url, timeout=None):
         return _FakeResp({"ok": True})
 
 
-def _unwire(q):
+def _unwire(name, q):
     return {
-        "id": q["id"],
+        "id": name,
         "primitive": q["type"],
-        "text": q["question"],
-        "scale_min": q.get("min", 0.0),
-        "scale_max": q.get("max", 10.0),
-        "options": tuple(q.get("options", ())),
+        "text": q["instructions"],
+        "scale_min": 0.0,
+        "scale_max": 10.0,
+        "options": tuple(q.get("criteria", ())),
     }
 
 
 def test_wire_request_shape():
-    """A request written for one backend replays on the other (docs/03)."""
+    """A request written for one backend replays on the other (docs/03) —
+    real v0.2 shape: one content per request, questions as a named dict."""
     questions = jcfgs.get_config("arxiv").questions
     session = _Session(_wire_payload)
     backend = ClmBackend(base_url="http://x", session=session)
-    backend.system_one_batch("STATE", ["a", "b"], questions)
+    answers_list = backend.system_one_batch("PROFILE STATE", ["item one", "item two"], questions)
+    assert len(answers_list) == 2
+    assert answers_list[0]["relevance"].value == 5.0
     body = _Session.last_post["body"]
-    assert body["state"] == "STATE"
-    assert len(body["items"]) == 2
-    assert body["questions"][0]["type"] == "score"
-    assert _Session.last_post["url"].endswith("/v1/system_one")
+    assert body["state"].startswith("PROFILE STATE") and "ITEM:\nitem two" in body["state"]
+    assert set(body["questions"]) == {q.id for q in questions}
+    assert body["questions"]["relevance"]["type"] == "score"
+    assert body["questions"]["relevance"]["criteria"] == [str(i) for i in range(11)]
+    assert _Session.last_post["url"].endswith("/v1/systemone")
+    # noul answers carry no confidence: the margin |2p−1| stands in
+    assert answers_list[0]["novelty"].confidence == pytest.approx(0.0)  # p=0.5 → margin 0
+
+
+def test_question_wire_shapes():
+    relevance, novelty, kind = (
+        Question("relevance", "score", "rate it", scale_max=10),
+        Question("novelty", "noul", "new?"),
+        Question("kind", "choice", "what?", options=("release", "drama")),
+    )
+    assert relevance.to_wire() == {"type": "score", "instructions": "rate it", "criteria": [str(i) for i in range(11)]}
+    assert novelty.to_wire() == {"type": "noul", "instructions": "new?"}
+    assert kind.to_wire() == {
+        "type": "choice",
+        "instructions": "what?",
+        "criteria": {"release": "release", "drama": "drama"},
+    }
+
+
+def test_rank_emulated_on_hosted():
+    """No /v1/rank in hosted v0.2: rank runs one systemone probe per candidate."""
+    calls = []
+
+    class CountingSession(_Session):
+        def post(self, url, data=None, headers=None, timeout=None):
+            calls.append(url)
+            return super().post(url, data, headers, timeout)
+
+    jev = TypesafeBackend(base_url="https://api.typesafe.ai", api_key="k", session=CountingSession(_wire_payload))
+    ranked = jev.rank("canonical context", "Is this the same underlying story?", ["cand a", "cand b", "cand c"])
+    assert len(calls) == 3  # one probe per candidate
+    assert ranked.probabilities == [0.5, 0.5, 0.5]
+    assert ranked.input_tokens > 0
+
+
+def test_rank_native_on_clm():
+    class RankSession:
+        def post(self, url, data=None, headers=None, timeout=None):
+            import json as _json
+
+            _Session.last_post = {"url": url, "body": _json.loads(data), "headers": headers}
+            return _FakeResp({"probabilities": [0.9, 0.1], "usage": {"input_tokens": 50}})
+
+    clm = ClmBackend(base_url="http://x", session=RankSession())
+    ranked = clm.rank("ctx", "same story?", ["a", "b"])
+    assert ranked.probabilities == [0.9, 0.1]
+    assert _Session.last_post["url"].endswith("/v1/rank")
+    assert _Session.last_post["body"]["candidates"] == ["a", "b"]
 
 
 # ------------------------------------------------------------------- scheduling

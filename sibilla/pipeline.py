@@ -47,6 +47,7 @@ class RunReport:
     stale_state: bool = False
     backend_down: bool = False
     backend_reason: str = ""  # why the backend is down: unreachable vs auth vs key missing
+    judge_error_sample: str = ""  # first judge error of the cycle — the summary shows the why
     state_hash: str = ""
 
     def summary(self) -> str:
@@ -55,6 +56,7 @@ class RunReport:
             f"sibilla run {self.date_label}",
             f"fetched [{', '.join(bits) or 'nothing new'}]",
             f"judged {self.judged} (+{self.judge_errors} errors)",
+            *((f"first error: {self.judge_error_sample}",) if self.judge_error_sample else (())),
             f"{self.clusters} clusters",
             f"${self.spend_usd:.3f}",
         ]
@@ -402,6 +404,8 @@ def run_cycle(
         if backend_up:
             try:
                 report.judged, report.judge_errors = judge_pending(cfg, store, backend, state_hash, state_text)
+                if report.judge_errors:
+                    report.judge_error_sample = (store.judge_last_error() or "")[:160]
             except JudgeUnavailable:
                 backend_down = True
         report.backend_down = backend_down

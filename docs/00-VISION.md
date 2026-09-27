@@ -57,10 +57,11 @@ Deterministic construction → the model never invents the profile.
 The judge evaluates a state against typed questions (choice / score / noul) and
 returns **calibrated probabilities**, not generated text. Consequences:
 
-- **Cost**: state is packed once per request; questions ride along in
-  parallel. Full workload ≈ **$1.43/year** (see
-  [03 – Judge](03-JUDGE.md#cost-model)). A mini-LLM doing the same
-  per-item prompting costs ~42x more.
+- **Cost**: typed questions ride one request per item with the state
+  prepended; full workload ≈ **$17/year** on the hosted API as shipped,
+  **$0** on a local CLM (see [03 – Judge](03-JUDGE.md#cost-model)). A
+  mini-LLM doing the same prompting costs ~3.5x more than hosted — and
+  the local CLM path is what makes judging 1,750 items/week feel free.
 - **Calibration**: confidence is a first-class output. Low confidence →
   surface to the human instead of guessing.
 - **Typed outputs**: no parsing generated text; primitives map directly to

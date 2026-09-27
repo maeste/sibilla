@@ -23,11 +23,10 @@ you say you want** (declared interests) or **what you already read**
    and recent commits describe your active work better than any
    self-declared preference list — and it requires zero maintenance.
 2. **System One economics unlock the design.** Judging 1,750 items/week with
-   a traditional LLM costs ~$59/year even with a mini model. With a
-   local System One judge it is free; with hosted Jev
-   (typed answers, free output tokens, state packed once per request) the
-   same workload costs **~$1.43/year**. A 42x gap changes what is worth
-   building.
+   a traditional LLM costs ~$59/year even with a mini model. With the
+   hosted Jev API as shipped (~$17/year — the state rides every request)
+   and a local System One judge it is **$0**: free-at-volume changes what
+   is worth building.
 3. **Calibrated confidence belongs in the UI.** The judge returns probabilities
    calibrated against outcomes. Sibilla renders low-confidence judgments as
    an explicit "you look here" zone instead of hiding uncertainty.
@@ -104,7 +103,7 @@ vllm serve Qwen/Qwen3-8B --served-model-name qwen3-8b \
 clm-serve --max-tokens 8192 --port 8700
 
 # 1b. ALTERNATIVE, no GPU/no local infra: hosted TypeSafe Jev instead.
-#     Same wire API, ~$1.43/year at Sibilla's volume. Skip step 1a,
+#     Same wire API; ~$17/year at Sibilla's volume as shipped. Skip step 1a,
 #     export the API key, and start from the pre-populated Jev config
 #     (sibilla.yaml.example.jev — same shape as the example, judge
 #     block already set: backend typesafe, api_key_env TYPESAFE_API_KEY):

@@ -14,7 +14,7 @@ self-hostable one):
 |---|---|---|
 | One label per item, no prose | Parse generated text (fragile) | Typed primitives |
 | Uncertainty handling | Parse "I think maybe..." | Probability distributions |
-| 1,750 judgments/week | ~$59/yr even with mini model | Free (local CLM) or ~$1.43/yr (Jev) |
+| 1,750 judgments/week | ~$59/yr even with mini model | Free (local CLM) or ~$17/yr (Jev, measured v0.2 shape) |
 | Stable judgment scale | Drifts with wording | Trained for calibrated decisions |
 | State privacy | Same | **Local: the state never leaves the machine** |
 
@@ -127,8 +127,10 @@ What Sibilla uses beyond the basic three primitives:
 
 ### TypeSafe Jev (hosted alternative)
 
-Same primitives, hosted, pay-per-token ($0.042/Mtok input, output free;
-~$1.43/yr at Sibilla's volume). Choose it when no GPU is available or
+Same primitives, hosted, pay-per-token ($0.042/Mtok input, output free).
+Measured against the live v0.2 API (one content per request, state riding
+every time): ~7.6M input tok/week ≈ **$0.32/week ≈ $17/yr** — the state
+prefix dominates the bill; local CLM stays the reference for volume. Choose it when no GPU is available or
 when you want zero local infrastructure: `backend = "typesafe"` and the
 SDK key in `api_key_env`. Everything else in this document — state
 construction, packing, cache keys, confidence gating — is
@@ -209,13 +211,15 @@ relevance alone.
 
 ## Fan-out scheduling
 
-Jev packs many items per 64k request; CLM inverts the shape — one state
-embed, one request per item, encoder time amortized by the vector cache.
-The scheduler abstracts both behind the same interface:
+Measured reality (hosted v0.2 openapi): **one content per request**, all
+questions mixed in — there is no items array on either backend. Both are
+fan-out shapes; the scheduler's job is per-source grouping plus bounded
+concurrency (politeness on hosted, throughput on CLM):
 
 ```
 per weekly cycle (1,750 arXiv items):
-  Jev (typesafe):    ~10 packed requests of ~170 items   → ~650k input tok ≈ $0.027
+  typesafe (hosted): ~1,750 requests, state+item each (~4.3k tok)  → $0.32
+                     (a state server-side cache would change this; none in v0.2)
   CLM (local):       state embed once (cache miss)        → then ~1,750 item requests
                      @ ~30–60 ms each ≈ 1–2 min GPU wall time, $0
 ```
@@ -243,13 +247,20 @@ into hours, not minutes) and ~2 GB VRAM for the reserved vector cache
 99.9% of the time; the weekly judge cycle is a 1–2 minute job with a GPU
 in the loop.
 
-**TypeSafe Jev (alternative):**
+**TypeSafe Jev (alternative):** the v0.2 API (openapi.json) takes ONE
+content per request — no item batching — so the 4k-token state rides in
+every item request:
 
 ```
-input_tokens/week ≈ (1,750 × 350) + (10 req × 4,000 state) ≈ 650k
-cost/week          ≈ 650k / 1M × $0.042 ≈ $0.027
-cost/year          ≈ $1.43
+input_tokens/week ≈ 1,750 × (4,000 state + 350 item) ≈ 7.6M
+cost/week          ≈ 7.6M / 1M × $0.042 ≈ $0.32
+cost/year          ≈ $17
 ```
+
+(The design-time estimate of ~$1.43 assumed ~170 items packed per
+request; the shipped v0.2 API has no items array. CLM — state embedded
+once, vector-cached — is the volume path; hosted stays fine at v0/v1
+volumes or as the no-GPU fallback.)
 
 Adding HN + Reddit (v1) roughly doubles volume; X (v2, monitored profiles
 only) is bounded by the profile list. **The binding constraint is never
