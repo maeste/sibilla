@@ -18,4 +18,5 @@ class TypesafeBackend(HttpJudgeBackend):
     default_api_key_env = "TYPESAFE_API_KEY"
     requires_api_key = True  # the SDK key is mandatory — missing key = auth problem
     endpoint_rank = None  # no /v1/rank in the hosted v0.2: rank is emulated via systemone
+    max_score_levels = 10  # 'Too many score levels. Must have at most 10 levels.' (live 400)
     input_cost_per_mtok = 0.042

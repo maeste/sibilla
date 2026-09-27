@@ -149,6 +149,44 @@ def test_question_wire_shapes():
     }
 
 
+def test_score_rubric_capped_and_rescaled_on_hosted():
+    """Live 400: 'Too many score levels. Must have at most 10 levels.' — the
+    canonical 0–10 scale compresses to 10 wire levels and answers rescale back."""
+    questions = jcfgs.get_config("arxiv").questions
+
+    class Capped(ClmBackend):
+        max_score_levels = 10
+
+        def _post(self, path, body):
+            assert len(body["questions"]["relevance"]["criteria"]) == 10  # 0..9 — the API cap
+            assert len(body["questions"]["applicability"]["criteria"]) == 10
+            answers = {q.id: _wire_answer(q) for q in questions}
+            answers["relevance"] = {"type": "score", "score": 9, "confidence": 0.9}  # rubric top
+            return {"model": self.model, "answers": answers, "usage": {"input_tokens": 100, "output_tokens": 0}}
+
+    backend = Capped(base_url="http://x", session=_Session(_wire_payload))
+    (answers,) = backend.system_one_batch("STATE", ["item"], questions)
+    assert answers["relevance"].value == pytest.approx(10.0)  # 9 × 10/9 — canonical scale restored
+    assert answers["applicability"].value == pytest.approx(50 / 9)  # 5 × 10/9, deterministic
+    assert answers["novelty"].value == 0.5  # noul untouched by the rubric cap
+
+
+def test_rubric_uncapped_on_clm():
+    """CLM has no level cap: the canonical 0–10 rubric goes to the wire as-is."""
+    questions = jcfgs.get_config("arxiv").questions
+    captured = {}
+
+    class Recording(ClmBackend):
+        def _post(self, path, body):
+            captured.update(body)
+            answers = {q.id: _wire_answer(q) for q in questions}
+            return {"model": self.model, "answers": answers, "usage": {"input_tokens": 1, "output_tokens": 0}}
+
+    backend = Recording(base_url="http://x", session=_Session(_wire_payload))
+    backend.system_one_batch("S", ["i"], questions)
+    assert len(captured["questions"]["relevance"]["criteria"]) == 11  # 0..10 intact
+
+
 def test_rank_emulated_on_hosted():
     """No /v1/rank in hosted v0.2: rank runs one systemone probe per candidate."""
     calls = []

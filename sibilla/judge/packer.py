@@ -11,9 +11,11 @@ Scheduling rules, both backends:
 
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import json
 import logging
+import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -133,7 +135,12 @@ class Packer:
         done = 0
         step = max(1, total // 10) if total >= 20 else total  # ≤10 progress lines per source
 
+        abort = threading.Event()
+        abort_text = f"aborted — repeated backend error ({job.source})"
+
         def one(idx: int) -> tuple[int, dict[str, Answer] | None, str | None]:
+            if abort.is_set():
+                return idx, None, abort_text  # never call the backend once aborting
             try:
                 return (
                     idx,
@@ -146,20 +153,59 @@ class Packer:
                 return idx, None, str(exc)
 
         with ThreadPoolExecutor(max_workers=self.concurrency) as pool:
-            futures = [pool.submit(one, i) for i in range(total)]
-            for fut in as_completed(futures):
-                idx, answers, error = fut.result()
+            pairs = [(pool.submit(one, i), i) for i in range(total)]
+            fut_to_idx = {fut: idx for fut, idx in pairs}
+            streak_error: str | None = None
+            streak = 0
+            abort_reason: str | None = None
+            for fut in as_completed([fut for fut, _ in pairs]):
+                idx = fut_to_idx[fut]
+                try:
+                    idx, answers, error = fut.result()
+                except concurrent.futures.CancelledError:
+                    continue
                 item_id = job.item_ids[idx]
                 result.truncated_by_item[item_id] = job.truncated_flags[idx]
                 if error is not None:
                     result.errors_by_item[item_id] = error
                     self._ledger_error(job, 1, JudgeError(error))
+                    # a config problem (bad rubric, bad model name) fails every
+                    # item identically — stop burning calls after 5 in a row
+                    if error == streak_error:
+                        streak += 1
+                    else:
+                        streak_error, streak = error, 1
+                    if streak >= 5:
+                        abort_reason = error
+                        abort.set()  # queued workers bail out before calling
+                        for f, _ in pairs:
+                            f.cancel()
+                        log.error(
+                            "judge %s: aborting — the same backend error %dx in a row: %s",
+                            job.source,
+                            streak,
+                            error[:200],
+                        )
+                        break
                 else:
                     result.answers_by_item[item_id] = answers or {}
                     self._ledger_ok(job, 1, getattr(self.backend, "last_call", None))
+                    streak_error, streak = None, 0
                 done += 1
                 if done < total and done % step == 0:
                     log.info("judge %s: %d/%d", job.source, done, total)
+            if abort_reason is not None:  # isolation sweep: EVERY item carries the why
+                reason = f"aborted — repeated backend error: {abort_reason[:160]}"
+                skipped = 0
+                for _fut, idx in pairs:
+                    item_id = job.item_ids[idx]
+                    judged = item_id in result.answers_by_item or item_id in result.errors_by_item
+                    if not judged:
+                        result.errors_by_item[item_id] = reason
+                        result.truncated_by_item[item_id] = job.truncated_flags[idx]
+                        skipped += 1
+                if skipped:
+                    log.warning("judge %s: %d items skipped by the abort", job.source, skipped)
 
     def _absorb(self, item_id: str, truncated: bool, answers: dict[str, Answer], result: JudgeResult) -> None:
         result.truncated_by_item[item_id] = truncated

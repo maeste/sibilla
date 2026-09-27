@@ -84,3 +84,35 @@ def test_setup_logging_levels(monkeypatch):
     cli_mod._setup_logging(verbose=False)
     assert logging.getLogger("sibilla").getEffectiveLevel() == logging.WARNING
     assert stream  # silence linters on the unused helper
+
+
+def test_fail_fast_on_repeated_identical_errors(caplog):
+    """A config problem (bad rubric/model) fails every item identically:
+    after 5 in a row the job aborts, remaining items get the reason without
+    burning backend calls, and the log says so loudly."""
+    calls = {"n": 0}
+
+    class AllBad(FakeBackend):
+        def system_one(self, state, item, questions, *, temperature=1.0):
+            import time as _time
+
+            _time.sleep(0.02)  # a real HTTP call takes long enough to react to
+            calls["n"] += 1
+            raise __import__("sibilla.judge.base", fromlist=["JudgeError"]).JudgeError(
+                'backend 400 for /v1/systemone: {"detail":"Too many score levels."}'
+            )
+
+    job = JudgeJob(source="arxiv", config=jcfgs.get_config("arxiv"))
+    for i in range(50):
+        job.add(f"arxiv:{i}", f"item {i}")
+
+    with caplog.at_level(logging.INFO, logger="sibilla.judge.packer"):
+        result = Packer(AllBad(), ledger=lambda **kw: None, concurrency=2).run("S", [job])
+
+    assert calls["n"] < 20  # a handful of probes, not 50 identical calls
+    assert len(result.errors_by_item) == 50  # isolation: every item carries the why
+    aborted = [e for e in result.errors_by_item.values() if e.startswith("aborted")]
+    assert aborted, "the not-yet-run items are marked with the abort reason"
+    log_text = " ".join(r.getMessage() for r in caplog.records)
+    assert "aborting" in log_text and "Too many score levels" in log_text
+    assert "50 items skipped" in log_text or "items skipped" in log_text

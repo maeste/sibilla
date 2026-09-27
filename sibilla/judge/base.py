@@ -30,7 +30,7 @@ from __future__ import annotations
 import json
 import time
 from collections.abc import Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any, Literal, Protocol, runtime_checkable
 
 import requests
@@ -184,6 +184,8 @@ class HttpJudgeBackend:
     requires_api_key = False  # typesafe: True — a missing key is auth, not downtime
     endpoint_system_one = "/v1/systemone"  # TypeSafe v0.2 path (their openapi.json)
     endpoint_rank: str | None = "/v1/rank"  # None → rank is emulated via systemone
+    max_score_levels: int | None = None  # hosted v0.2: 10 — a wider canonical scale
+    # is wire-adapted (rubric compressed, answers rescaled back, deterministic)
     input_cost_per_mtok = 0.0  # output tokens are free on both documented backends
 
     def __init__(
@@ -219,7 +221,7 @@ class HttpJudgeBackend:
         politeness."""
         if not items:
             return []
-        wire_questions = {q.id: q.to_wire() for q in questions}
+        wire_questions, rescale = self._wire_questions(questions)
         out: list[dict[str, Answer]] = []
         for item in items:
             payload = self._post(
@@ -229,8 +231,34 @@ class HttpJudgeBackend:
             answers = payload.get("answers")
             if not isinstance(answers, dict):
                 raise JudgeError(f"systemone returned {type(answers).__name__} answers, expected an object")
-            out.append({q.id: parse_answer(q, answers[q.id]) for q in questions if q.id in answers})
+            row = {q.id: parse_answer(q, answers[q.id]) for q in questions if q.id in answers}
+            for qid, (factor, scale_max) in rescale.items():  # rubric compressed: back to canonical
+                a = row.get(qid)
+                if a is not None and isinstance(a.value, int | float) and not isinstance(a.value, bool):
+                    row[qid] = replace(a, value=min(scale_max, a.value * factor))
+            out.append(row)
         return out
+
+    def _wire_questions(self, questions: Sequence[Question]) -> tuple[dict[str, Any], dict[str, tuple[float, float]]]:
+        """Question dict for the wire + per-question (rescale factor, scale max).
+
+        A backend rubric cap (e.g. hosted v0.2: ≤10 score levels) compresses a
+        wider canonical scale (0–10 → 0–9, zero anchor kept) and the parsed
+        answer is rescaled back by (scale span)/(levels−1) — deterministic,
+        thresholds stay on the canonical scale.
+        """
+        wire: dict[str, Any] = {}
+        rescale: dict[str, tuple[float, float]] = {}
+        for q in questions:
+            w = q.to_wire()
+            if q.primitive == "score" and self.max_score_levels is not None:
+                n_levels = int(q.scale_max - q.scale_min) + 1
+                if n_levels > self.max_score_levels:
+                    w["criteria"] = [str(int(q.scale_min) + i) for i in range(self.max_score_levels)]
+                    factor = (q.scale_max - q.scale_min) / (self.max_score_levels - 1)
+                    rescale[q.id] = (factor, q.scale_max)
+            wire[q.id] = w
+        return wire, rescale
 
     def rank(self, context: str, question: str, candidates: Sequence[str]) -> Ranked:
         """Similarity primitive for the dedup engine (docs/03).
