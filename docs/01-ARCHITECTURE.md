@@ -66,7 +66,7 @@ sibilla/
 ├── docs/                    # this design documentation
 ├── pyproject.toml
 ├── sibilla/
-│   ├── cli.py               # `sibilla run`, `sibilla map`, `sibilla state`, `sibilla tune`, `sibilla revive`
+│   ├── cli.py               # `sibilla run`, `sibilla map`, `sibilla state`, `sibilla tune`, `sibilla revive`, `sibilla prune`
 │   ├── config.py            # sibilla.yaml loading (sources / state / judge / delivery)
 │   ├── pipeline.py          # orchestration of the 5 stages
 │   ├── store.py             # sqlite: items, verdicts, state versions, ledger, labels, calibrations

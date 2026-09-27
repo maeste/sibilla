@@ -208,6 +208,51 @@ def test_unknown_item_revive_fails_cleanly(cli_env, capsys):
     assert main(["revive", "arxiv:nope"]) == 1
 
 
+def test_prune_removes_db_keeps_maps(cli_env, capsys):
+    main(["run"])  # create db + map
+    capsys.readouterr()
+    db = cli_env / "cli.db"
+    maps_before = sorted(cli_env.glob("sibilla-*.html"))
+    assert maps_before and db.exists()
+
+    assert main(["prune", "--yes"]) == 0
+    out = capsys.readouterr().out
+    assert not db.exists()
+    assert not db.with_suffix(".db-wal").exists()  # sqlite sidecars are gone too
+    assert all(m.exists() for m in maps_before)  # --maps not given: maps are kept
+    assert "items=" in out and "verdicts=" in out  # informed confirmation showed the counts
+    # a fresh run starts clean and repopulates
+    assert main(["run"]) == 0
+    assert "judged 3" in capsys.readouterr().out
+
+
+def test_prune_maps_removes_generated_html(cli_env, capsys):
+    main(["run"])
+    capsys.readouterr()
+    assert main(["prune", "--maps", "--yes"]) == 0
+    assert not list(cli_env.glob("sibilla-*.html"))
+    assert (cli_env / "cli.db").exists() is False  # the db goes too — that's the reset
+
+
+def test_prune_asks_confirmation_and_aborts(cli_env, capsys, monkeypatch):
+    main(["run"])
+    capsys.readouterr()
+    db = cli_env / "cli.db"
+    monkeypatch.setattr("builtins.input", lambda _prompt: "no")
+    assert main(["prune"]) == 1
+    assert db.exists()  # aborted — nothing deleted
+    assert "aborted" in capsys.readouterr().err
+
+    monkeypatch.setattr("builtins.input", lambda _prompt: "yes")
+    assert main(["prune"]) == 0
+    assert not db.exists()
+
+
+def test_prune_without_db_is_a_noop(cli_env, capsys):
+    assert main(["prune", "--yes"]) == 0
+    assert "nothing to prune" in capsys.readouterr().out
+
+
 def test_tune_train_drops_head_in_ckpt_dir(cli_env, tmp_path, capsys):
     """docs/03: tune exports, runs the CLM fine-tune, drops the head, suggests the new model name."""
     main(["run"])  # seed labelled examples

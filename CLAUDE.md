@@ -33,7 +33,7 @@ Decided in design; do not relitigate in code without updating the docs first:
 
 ## Planned structure
 
-Implemented as designed: Python package `sibilla/` with `cli.py`, `pipeline.py`, `store.py`, `config.py`, `delivery.py`, and `state/`, `judge/`, `sources/`, `dedup/`, `render/` subpackages; tests in `tests/`. CLI: `sibilla run`, `sibilla map`, `sibilla state`, `sibilla tune`, `sibilla revive`.
+Implemented as designed: Python package `sibilla/` with `cli.py`, `pipeline.py`, `store.py`, `config.py`, `delivery.py`, and `state/`, `judge/`, `sources/`, `dedup/`, `render/` subpackages; tests in `tests/`. CLI: `sibilla run`, `sibilla map`, `sibilla state`, `sibilla tune`, `sibilla revive`, `sibilla prune`.
 
 ## Commands
 

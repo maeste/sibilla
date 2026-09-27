@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -86,6 +87,11 @@ def _parser() -> argparse.ArgumentParser:
     rv.add_argument("item_id", help="item id, e.g. arxiv:2401.12345v1")
     rv.add_argument("--reason", default=None, help="why (kept in the labels log)")
     rv.set_defaults(func=_cmd_revive)
+
+    pr = sub.add_parser("prune", parents=[common], help="reset local state for a clean start (destructive)")
+    pr.add_argument("--maps", action="store_true", help="also delete the generated sibilla-*.html maps")
+    pr.add_argument("--yes", "-y", action="store_true", help="do not ask for confirmation")
+    pr.set_defaults(func=_cmd_prune)
     return p
 
 
@@ -292,6 +298,67 @@ def _cmd_revive(args: argparse.Namespace) -> int:
         return 0
     finally:
         store.close()
+
+
+def _cmd_prune(args: argparse.Namespace) -> int:
+    """Reset local state for a clean start (docs/01: everything lands in the local DB).
+
+    Deletes the SQLite store (+ WAL/SHM sidecars) — items, verdicts, state
+    versions, clusters, the cost ledger, labels and calibrations all live
+    there, so removing the file is the whole reset. ``--maps`` also deletes
+    the generated ``sibilla-*.html``. Config and RADAR.md are never touched.
+    """
+    cfg = _cfg(args)
+    db = Path(cfg.db_path).resolve()
+
+    # informed confirmation: what the store holds (opened/closed first — a
+    # clean sqlite close may checkpoint away the -wal/-shm sidecars, so the
+    # target list is computed after this)
+    counts = ""
+    if db.exists():
+        try:
+            store = Store(cfg.db_path)
+            try:
+                one = lambda sql: store.conn.execute(sql).fetchone()[0]  # noqa: E731
+                counts = (
+                    f"items={one('SELECT COUNT(*) FROM items')} verdicts={one('SELECT COUNT(*) FROM verdicts')}"
+                    f" labels={one('SELECT COUNT(*) FROM labels')} states={one('SELECT COUNT(*) FROM state_versions')}"
+                )
+            finally:
+                store.close()
+        except sqlite3.Error:
+            counts = "counts unavailable (db busy?)"
+
+    targets = [db] + [Path(f"{db}{suffix}") for suffix in ("-wal", "-shm")]
+    if args.maps:
+        targets.extend(sorted(Path(cfg.output_dir).resolve().glob("sibilla-*.html")))
+    existing = [t for t in targets if t.exists() and t.is_file()]
+    if not existing:
+        print(f"nothing to prune ({db} not found)")
+        return 0
+
+    def size(p: Path) -> str:
+        return (
+            f"{p.stat().st_size / 1024:,.0f} KB"
+            if p.stat().st_size < 1 << 20
+            else f"{p.stat().st_size / (1 << 20):.1f} MB"
+        )
+
+    print("will delete:")
+    for t in existing:
+        suffix = f"  ({counts})" if t == db and counts else ""
+        print(f"  {t}  {size(t)}{suffix}")
+    print("kept: sibilla.yaml, RADAR.md, exported label files.")
+
+    if not args.yes:
+        answer = input("type 'yes' to confirm: ").strip().lower()
+        if answer != "yes":
+            print("aborted — nothing deleted", file=sys.stderr)
+            return 1
+    for t in existing:
+        t.unlink()
+    print(f"pruned {len(existing)} file(s) — next `sibilla run` starts clean")
+    return 0
 
 
 # --------------------------------------------------------------- tune loop

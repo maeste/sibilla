@@ -131,6 +131,13 @@ sibilla run --source-window arxiv=192
 #    + quiet weekends; HN/Reddit 24h). Precedence: --source-window >
 #    --window-hours > per-source window: > global window:.
 
+#    Start clean: `prune` deletes the local state (sibilla.db — items,
+#    verdicts, state history, labels, calibrations) after showing you what
+#    it holds; --maps also removes the generated HTML. Config and RADAR.md
+#    are kept. The next `sibilla run` starts from scratch (use
+#    --source-window arxiv=192 to backfill immediately).
+sibilla prune            # asks for confirmation; --yes skips the prompt
+
 # 4. tune loop: click labels in the map → export labels → fit gates
 sibilla tune --import labels.json --fit
 
