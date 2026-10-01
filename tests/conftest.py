@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import pytest
 
@@ -12,7 +12,6 @@ from sibilla.judge.base import Answer, Ranked
 from sibilla.judge.configs import get_config
 from sibilla.judge.packer import JudgeJob, Packer
 from sibilla.sources.base import RawItem
-from sibilla.state import builder as state_builder
 from sibilla.store import ItemRow, Store
 
 
@@ -151,84 +150,15 @@ def run_packer(backend, state: str, job: JudgeJob):
 
 
 @pytest.fixture
-def github_mock(monkeypatch):
-    """Mock the GitHub REST surface used by the state builder."""
-    repos = [
-        {
-            "full_name": "maeste/radar-core",
-            "description": "personal radar engine",
-            "topics": ["agents", "arxiv"],
-            "pushed_at": "2026-09-20T10:00:00Z",
-            "fork": False,
-            "archived": False,
-        },
-        {
-            "full_name": "maeste/old-thing",
-            "description": "archived",
-            "topics": [],
-            "pushed_at": "2020-01-01T10:00:00Z",
-            "fork": False,
-            "archived": True,
-        },
-    ]
-    # a repo NOT in the user's listing — reachable only via explicit github_repos
-    explicit_extra = {
-        "full_name": "maeste/secret-sauce",
-        "description": "private experiments",
-        "topics": ["private"],
-        "pushed_at": "2020-01-01T10:00:00Z",  # old on purpose: bypasses age filter
-        "fork": False,
-        "archived": False,
-    }
-    commits = [{"commit": {"message": "fix wiki ingestion\n\nbody"}}, {"commit": {"message": "add compass scoring"}}]
-
-    class FakeResp:
-        def __init__(self, payload, status=200, text=None):
-            self._payload = payload
-            self.status_code = status
-            self.text = text if text is not None else str(payload)
-
-        def json(self):
-            return self._payload
-
-    def fake_get(self, url, headers=None, params=None, timeout=None):
-        if "/repos/" in url and url.endswith("/readme"):
-            return FakeResp(None, text="# Title\n\nPersonal knowledge base for agents. Fixes and scoring.")
-        if url.endswith("/commits"):
-            return FakeResp(commits)
-        if "/users/" in url or "/orgs/" in url:
-            return FakeResp(repos)
-        # explicit single-repo endpoint: /repos/{owner}/{repo}
-        for r in repos + [explicit_extra]:
-            if url.endswith(f"/repos/{r['full_name']}"):
-                return FakeResp(r)
-        return FakeResp(None, 404)
-
-    monkeypatch.setattr(state_builder.requests.Session, "get", fake_get)
-    return repos
-
-
-@pytest.fixture
 def sample_raw_items() -> dict[str, list[RawItem]]:
-    """One arXiv paper echoed by HN (same arXiv URL) + a standalone reddit post.
+    """One arXiv paper echoed by HN (same arXiv URL) + a standalone reddit post."""
+    from datetime import timedelta
 
-    Timestamps are anchored to the *inside of today's cycle window*
-    [cutoff-24h, cutoff), where cutoff = today at the delivery hour
-    (06:00 per Config default). Anchoring to ``now`` instead makes the
-    fixture a time bomb: run after 08:00 local time and "2 hours ago"
-    lands after the 06:00 cutoff, outside the window — items vanish
-    from the cycle and the cluster assertions fail.
-    """
     arxiv_id = "2609.77777"
-    cutoff = datetime.now().astimezone().replace(hour=6, minute=0, second=0, microsecond=0)
-    if cutoff > datetime.now().astimezone():
-        # before 06:00: today's window ends at 06:00, but window_for() only
-        # runs cycles with end <= now, so anchor to the cutoff that already
-        # passed: yesterday 06:00
-        cutoff -= timedelta(hours=24)
+    now = datetime.now(timezone.utc)
 
-    def ts(hours_before_cutoff: float) -> datetime:
-        return cutoff - timedelta(hours=hours_before_cutoff)
+    def ts(hours_ago: float) -> datetime:
+        return now - timedelta(hours=hours_ago)
 
     return {
         "arxiv": [
@@ -287,7 +217,7 @@ class FakeState:
     def __init__(self, state_hash="deadbeef" * 8, text="ACTIVE WORK PROFILE (fake)"):
         self.state_hash = state_hash
         self.text = text
-        self.repos = []
+        self.conversations = []
         self.radar_md_used = False
 
 
@@ -303,6 +233,7 @@ def pipeline_env(tmp_path, monkeypatch, sample_raw_items):
     }
     monkeypatch.setattr("sibilla.pipeline.sources_registry", lambda: registry)
     monkeypatch.setattr("sibilla.pipeline.make_backend", lambda cfg: FakeBackend())
+
     from sibilla.state import builder as state_builder
 
     monkeypatch.setattr(state_builder, "build_state", lambda *a, **kw: FakeState("cafe" * 16))

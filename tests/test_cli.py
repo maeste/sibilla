@@ -46,7 +46,7 @@ class _FakeState:
     def __init__(self, state_hash):
         self.state_hash = state_hash
         self.text = "ACTIVE WORK PROFILE (fake)"
-        self.repos = []
+        self.conversations = []
         self.radar_md_used = False
 
 

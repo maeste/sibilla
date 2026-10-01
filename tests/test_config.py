@@ -23,8 +23,13 @@ sources:
   enabled:
     reddit: false
 state:
-  github_users: [maeste]
-  github_orgs: [RisorseArtificiali]
+  conversations:
+    include: user+assistant
+    exclude_projects: [secret-thing]
+    window_days: 14
+    rebuild_days: 3
+    char_budget: 8000
+    redact: false
   radar_md: RADAR.md
 judge:
   backend: typesafe
@@ -50,8 +55,12 @@ def test_full_config_roundtrip(tmp_path):
     assert cfg.sources.is_enabled("reddit") is False
     assert cfg.sources.is_enabled("arxiv") is True  # default on
     assert cfg.sources.x.profiles == ["karpathy"]
-    assert cfg.state.github_users == ["maeste"]
-    assert cfg.state.github_orgs == ["RisorseArtificiali"]
+    assert cfg.state.conversations.include == "user+assistant"
+    assert cfg.state.conversations.exclude_projects == ["secret-thing"]
+    assert cfg.state.conversations.window_days == 14
+    assert cfg.state.conversations.rebuild_days == 3
+    assert cfg.state.conversations.char_budget == 8000
+    assert cfg.state.conversations.redact is False
     assert cfg.judge.backend == "typesafe"
     assert cfg.judge.model == "jev-latest"
     assert cfg.judge.semantic_dedup is True
