@@ -19,9 +19,11 @@ you say you want** (declared interests) or **what you already read**
 
 ## The thesis
 
-1. **Your codebase is the honest interest profile.** Repos' topics, READMEs
-   and recent commits describe your active work better than any
-   self-declared preference list — and it requires zero maintenance.
+1. **Your agent conversations are the honest interest profile.** In the
+   agent era the codebase is agent *output*; the intention lives in what
+   you ask — the prompts, the corrections, the dead ends that never reach
+   a commit. Conversations describe your active work better than any
+   self-declared preference list — and they require zero maintenance.
 2. **System One economics unlock the design.** Judging 1,750 items/week with
    a traditional LLM costs ~$59/year even with a mini model. With the
    hosted Jev API as shipped (~$17/year — the state rides every request)
@@ -108,12 +110,11 @@ clm-serve --max-tokens 8192 --port 8700
 #     (sibilla.yaml.example.jev — same shape as the example, judge
 #     block already set: backend typesafe, api_key_env TYPESAFE_API_KEY):
 export TYPESAFE_API_KEY=...                 # get one at https://typesafe.ai/
-cp sibilla.yaml.example.jev sibilla.yaml    # then edit github_users, sources
+cp sibilla.yaml.example.jev sibilla.yaml    # then edit sources, judge
 #     (if you go 1b, step 2's cp is already done — just edit the file)
 
 # 2. configure
-cp sibilla.yaml.example sibilla.yaml   # set github_users, sources, judge
-export GITHUB_TOKEN=...                # optional, avoids the 60 req/h limit
+cp sibilla.yaml.example sibilla.yaml   # sources, judge (state reads your conversations)
 
 # 3. the daily loop
 sibilla run                            # fetch → normalize → state → judge → map

@@ -139,51 +139,60 @@ backend-agnostic except where noted.
 ## State construction
 
 The state is the user's interest profile — **built deterministically,
-never generated**:
+never generated** — from the history of conversations with coding agents:
 
 ```
-build_state(github_users, github_orgs, github_repos, radar_md_path) -> State
+build_state(conversations_cfg, radar_md_path) -> State
 ```
 
-1. `gh api` / GitHub REST. Three repo sources feed the state:
-   - `github_users` + `github_orgs`: every repo of each owner **filtered**
-     (pushed within `max_repo_age_months`, no forks/archived/disabled),
-     listing paginated through all pages
-   - `github_repos`: explicit `owner/repo` entries fetched directly —
-     **always included, bypassing every filter** (pin an old or archived
-     repo you still care about, or a private one invisible to the
-     listing), deduplicated by full name against the listings
-   - a listing repo explicitly named in `github_repos` appears once
-
-   **GitHub Enterprise:** `github_api_url` re-points every call (listings,
-   explicit repos, READMEs, commits) — e.g.
-   `https://ghe.example.com/api/v3`. The token must belong to that host.
-2. Per repo included by either source:
-   - repo name + description + topics
-   - README first section (up to ~800 chars, headings-stripped)
-   - last 20 commit subjects
+1. **Conversation sources** (a `ConversationSource` protocol; the first
+   adapter is `claude-jsonl`, reading `~/.claude/projects/<project>/*.jsonl`).
+   Hermes and Codex are future adapters behind the same seam — config
+   entries, never builder changes.
+2. **Deterministic selection** (all in code — the model never touches it):
+   - conversations from the last `window_days` (default **30**), all
+     projects, minus `exclude_projects`
+   - **user prompts only** by default (`include: user+assistant` is
+     configurable) — the intention carrier; assistant text is closer to
+     the agent output the pivot moves away from
+   - the ~4,000-token budget (~16k chars) is allocated **proportionally**
+     to each project's prompt volume in the window, capped at ~30% per
+     project; within a project the most recent prompts win
+   - **redaction runs before anything leaves the machine** (default ON):
+     deterministic regexes for API tokens (`sk-`, `ghp_`, `gho_`,
+     `Bearer …`), secrets assignments, `.env` filenames. Regexes catch
+     what has a *shape*; free-text business details are a documented
+     residual risk — exclude the project or run a local backend if that
+     matters
 3. Compact to a structured text (~4,000 tokens target):
 
    ```
-   ACTIVE WORK PROFILE (auto-generated from GitHub, 2026-09-26)
+   ACTIVE WORK PROFILE (auto-generated from agent conversations, 2026-10-01)
 
-   ## maeste/agent-me-kb — personal knowledge base for agents
-   topics: knowledge-graph, agents, arxiv
-   recent: fix wiki ingestion; add compass scoring; ...
+   ## sibilla — 2.1k chars of recent prompts
+   - fai una PR
+   - non mi piace: il 42x…
+   (one prompt per line, most recent first; ai-title as conversation header)
 
-   ## RisorseArtificiali/agent-ready-skill — ...
+   ## Prince-OneRing — ...
    ```
 
-3. `RADAR.md` (optional, user-edited) appended verbatim — the escape hatch
-   for interests invisible from code (e.g. "evaluating vector DBs for a
-   Q4 project", "deep-diving context engineering").
+4. `RADAR.md` (optional, user-edited) appended verbatim — the escape hatch
+   for interests invisible from conversations.
 
-4. `sha256(state_text)` → `state_hash`. Every verdict is keyed to it; a
+5. `sha256(state_text)` → `state_hash`. Every verdict is keyed to it; a
    rebuilt state re-judges only what changed underneath.
 
-**Refresh cadence:** monthly, or on-demand via `sibilla state --rebuild`.
-The state is stable by design — daily profile churn would re-judge
-everything daily and destroy the cache (CLM) or the cost model (Jev).
+**Refresh cadence:** weekly (`rebuild_days: 7`), or on-demand via
+`sibilla state --rebuild`. The state is stable within the week by design —
+daily profile churn would re-judge everything daily and destroy the cache
+(CLM) or the cost model (Jev). The weekly rebuild re-judges only the
+current window's items, not the whole store.
+
+**Privacy note:** the conversation-derived state is private text (today's
+GitHub-derived state was public data). With a hosted backend the state
+leaves the machine — redaction is the default, `state.redact: false`
+prints a warning in the run summary. CLM keeps everything local.
 
 **Backend note:** the 4k-token state exceeds CLM's default 2048-token
 window — the reference deployment raises both vLLM (`--max-model-len
