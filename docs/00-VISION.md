@@ -40,16 +40,21 @@ Two structural gaps:
 
 ## The thesis
 
-**Sibilla = your repos as interest profile + a System One model as judge +
-a proportional-space visual as interface.**
+**Sibilla = your agent conversations as interest profile + a System One model
+as judge + a proportional-space visual as interface.**
 
 Three pillars:
 
-### 1. State from code, not declarations
+### 1. State from conversations, not code or declarations
 
-The judgment *state* (the judge's input) is built deterministically from GitHub:
-repo topics, README lead sections, recent commit messages. An optional
-`RADAR.md` per-user override covers interests invisible from code.
+The judgment *state* (the judge's input) is built deterministically from the
+**history of your conversations with coding agents** (Claude Code first;
+Hermes and Codex as future adapters). In the agent era the codebase is agent
+*output* — the intention lives in what you ask: the prompts, the corrections,
+the "no, do it this way". Conversations are the most honest, self-updating
+record of active work; they also capture intent that never reaches a commit
+(explorations, dead ends, opinions). An optional `RADAR.md` per-user override
+covers interests invisible from conversations.
 Deterministic construction → the model never invents the profile.
 
 ### 2. System One economics

@@ -34,15 +34,16 @@ sources:
     x: false
 
 state:
-  github_users: [maeste]
-  github_orgs: []
-  # explicit owner/repo pins — always in the state, bypassing age/fork/archive
-  # filters (old repos you still care about, private repos invisible to the
-  # listing). Deduplicated against the listings above.
-  # github_repos: [maeste/sibilla, RisorseArtificiali/lince]
-  # GitHub Enterprise: point all state-builder calls at the GHES instance
-  # github_api_url: https://ghe.example.com/api/v3
-  radar_md: RADAR.md      # optional manual override, appended verbatim
+  # Interest profile from agent conversations (docs/03 state construction).
+  conversations:
+    roots: ["~/.claude/projects"]   # claude-jsonl adapter; hermes/codex adapters planned
+    include: user                   # user | user+assistant — prompts carry the intention
+    exclude_projects: []            # e.g. [employer-sensitive-project]
+    window_days: 30                 # conversations newer than this feed the state
+    rebuild_days: 7                 # state refresh cadence (weekly; daily would kill the cache)
+    char_budget: 16000              # ~4k tokens
+    redact: true                    # regex redaction of shaped secrets BEFORE anything leaves
+  radar_md: RADAR.md                # optional manual override, appended verbatim
 
 judge:
   backend: clm            # clm (local, reference) | typesafe (hosted Jev)

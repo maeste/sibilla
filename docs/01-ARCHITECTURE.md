@@ -33,7 +33,7 @@ Five stages, each independently testable:
 2. **Normalize** — heterogeneous items → common `Item` shape (id, title,
    body-ref, url, author, ts, source, metadata).
 3. **State** — deterministic builder produces the judgment state from
-   GitHub + `RADAR.md` (see [03](03-JUDGE.md#state-construction)).
+   agent conversations + `RADAR.md` (see [03](03-JUDGE.md#state-construction)).
 4. **Judge** — per-source JudgeConfig runs the pluggable judge backend
    (reference: local CLM) over the items; typed
    verdicts land in the store (see [03](03-JUDGE.md)).
@@ -72,7 +72,8 @@ sibilla/
 │   ├── store.py             # sqlite: items, verdicts, state versions, ledger, labels, calibrations
 │   ├── delivery.py          # telegram delivery (manual/open-the-file otherwise)
 │   ├── state/
-│   │   ├── builder.py       # gh api → profile state (deterministic)
+│   │   ├── builder.py       # conversations → profile state (deterministic)
+│   │   ├── conversations.py # ConversationSource protocol + claude-jsonl adapter + redaction
 │   │   └── radar_md.py      # RADAR.md override parsing
 │   ├── judge/
 │   │   ├── base.py          # JudgeBackend protocol + question/answer types + wire client
@@ -135,7 +136,10 @@ compare quadrants → measure how much profile changes move the needle.
 
 ## Security & privacy
 
-- Item bodies and state stay **local** (SQLite). With the reference CLM
+- Item bodies and state stay **local** (SQLite). The conversation-derived
+  state is **private text**: redaction strips shaped secrets by default, and
+  with the hosted backend what remains leaves the machine — a conscious
+  opt-in, louder than it was with public repo data. With the reference CLM
   backend nothing transits anywhere: source APIs in, everything else
   stays on the machine. The hosted TypeSafe backend receives
   titles/abstracts + state text — opt into it consciously.

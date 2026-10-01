@@ -60,17 +60,22 @@ class SourcesConfig:
 
 
 @dataclass
+class ConversationsConfig:
+    """Interest profile from agent conversations (docs/03 state construction)."""
+
+    roots: list[str] = field(default_factory=lambda: ["~/.claude/projects"])  # claude-jsonl adapter
+    include: str = "user"  # user | user+assistant — prompts carry the intention
+    exclude_projects: list[str] = field(default_factory=list)  # e.g. employer-sensitive projects
+    window_days: int = 30  # conversations newer than this feed the state
+    rebuild_days: int = 7  # state refresh cadence (daily churn would kill the cache)
+    char_budget: int = 16000  # ~4k tokens
+    redact: bool = True  # regex redaction of shaped secrets BEFORE anything leaves
+
+
+@dataclass
 class StateConfig:
-    github_users: list[str] = field(default_factory=list)
-    github_orgs: list[str] = field(default_factory=list)
-    github_repos: list[str] = field(
-        default_factory=list
-    )  # explicit owner/repo — always included, bypasses age/fork/archive filters
-    github_api_url: str = "https://api.github.com"  # point at GitHub Enterprise: https://ghe.example.com/api/v3
+    conversations: ConversationsConfig = field(default_factory=ConversationsConfig)
     radar_md: str = "RADAR.md"
-    max_repo_age_months: int = 6
-    readme_chars: int = 800
-    commits_per_repo: int = 20
 
 
 @dataclass
@@ -140,7 +145,10 @@ def load_config(path: str | Path | None = None) -> Config:
         cfg.output_dir = str(raw.get("output_dir", cfg.output_dir))
         cfg.radar_md = str(raw.get("radar_md", cfg.radar_md))
         cfg.sources = _build_sources(raw.get("sources"))
-        cfg.state = _build_dataclass(StateConfig, raw.get("state"))
+        state_raw = dict(raw.get("state") or {})
+        if "conversations" in state_raw:  # nested dataclass — the naive builder won't recurse
+            state_raw["conversations"] = _build_dataclass(ConversationsConfig, state_raw.get("conversations"))
+        cfg.state = _build_dataclass(StateConfig, state_raw)
         cfg.judge = _build_dataclass(JudgeConfigSettings, raw.get("judge"))
         cfg.delivery = _build_dataclass(DeliveryConfig, raw.get("delivery"))
     if not cfg.state.radar_md:

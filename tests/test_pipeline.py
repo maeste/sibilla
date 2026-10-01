@@ -24,7 +24,7 @@ from sibilla.store import Store
 
 def test_run_cycle_end_to_end(pipeline_env, tmp_path):
     cfg = pipeline_env
-    report = run_cycle(cfg, date_label=datetime.now().strftime("%Y-%m-%d"))
+    report = run_cycle(cfg)  # no date_label: end=now — robust at any time of day
     assert report.judged == 3
     assert report.judge_errors == 0
     assert report.map_path and report.map_path.endswith(".html")
@@ -33,7 +33,7 @@ def test_run_cycle_end_to_end(pipeline_env, tmp_path):
     store = Store(cfg.db_path)
     try:
         # second cycle: verdict cache key hits, zero re-judging (docs/03)
-        report2 = run_cycle(cfg, date_label=report.date_label)
+        report2 = run_cycle(cfg)
         assert report2.judged == 0
         assert report2.spend_usd == 0.0  # local CLM ledger
         # cross-source echo: arXiv + HN carried the same arXiv id
@@ -231,7 +231,7 @@ def test_clusters_replace_atomicity(pipeline_env):
     cfg = pipeline_env
     store = Store(cfg.db_path)
     try:
-        run_cycle(cfg, date_label=datetime.now().strftime("%Y-%m-%d"))
+        run_cycle(cfg)  # no date_label: end=now — robust at any time of day
         n1 = store.cluster_counts(0, 2**31)
         assert n1 >= 0
         # rebuilding clusters is idempotent — replace, not append

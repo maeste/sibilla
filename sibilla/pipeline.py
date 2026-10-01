@@ -31,13 +31,12 @@ from sibilla.store import ItemRow, Store, VerdictKey, VerdictRow
 
 log = logging.getLogger(__name__)
 
-STATE_MAX_AGE_S = 30 * 24 * 3600  # monthly refresh cadence (docs/03)
-
 
 @dataclass
 class RunReport:
     date_label: str
     window_hours: int | None = None  # None → config default (24h); 168 = weekly recap
+    window_end_ts: int | None = None  # the cycle's exact cutoff — the label alone re-anchors at delivery hour
     source_overrides: dict[str, int] = field(default_factory=dict)  # --source-window name=h
     fetched: dict[str, int] = field(default_factory=dict)
     judged: int = 0
@@ -217,13 +216,26 @@ def fetch_and_normalize(
 
 
 def ensure_state(cfg: Config, store: Store, rebuild: bool = False) -> tuple[str, str, bool]:
-    """Stage 3: build or reuse the state; fall back to last good on gh failure."""
+    """Stage 3: build or reuse the state; fall back to last good on failure.
+
+    Cadence is `state.conversations.rebuild_days` (weekly default, docs/03):
+    the snapshot — and its hash — stay stable inside the window, preserving
+    the verdict cache. Redaction-off on a hosted backend is a loud warning,
+    not a silent opt-out.
+    """
+    max_age_s = cfg.state.conversations.rebuild_days * 24 * 3600
     latest = store.latest_state()
-    if latest and not rebuild and (time.time() - latest[2]) < STATE_MAX_AGE_S:
+    if latest and not rebuild and (time.time() - latest[2]) < max_age_s:
         return latest[0], latest[1], False
     try:
-        token = os.environ.get("GITHUB_TOKEN") or None
-        state = state_builder.build_state(cfg.state, token=token)
+        state = state_builder.build_state(cfg.state)
+        if not state.conversations:
+            log.warning("state: no conversations in the window — profile is empty (check roots/window)")
+        if not cfg.state.conversations.redact:
+            log.warning(
+                "state: redaction is OFF — private conversation text %s",
+                "is being sent to a HOSTED backend" if cfg.judge.backend == "typesafe" else "stays local",
+            )
         store.save_state(state.state_hash, state.text)
         return state.state_hash, state.text, False
     except state_builder.StateBuilderError:
@@ -233,12 +245,14 @@ def ensure_state(cfg: Config, store: Store, rebuild: bool = False) -> tuple[str,
 
 
 def judge_pending(
-    cfg: Config, store: Store, backend: JudgeBackend, state_hash: str, state_text: str
+    cfg: Config, store: Store, backend: JudgeBackend, state_hash: str, state_text: str, min_published: int = 0
 ) -> tuple[int, int]:
-    """Stage 4: judge every item missing a verdict for the current cache key.
+    """Stage 4: judge every in-window item missing a verdict for the current cache key.
 
     Requests never mix JudgeConfigs (one job per source); truncation and
-    per-item failure isolation live in the packer (docs/03).
+    per-item failure isolation live in the packer (docs/03). Bounded to the
+    cycle's window: a state rebuild re-judges the visible week, not the
+    whole accumulated store.
     """
     model = getattr(backend, "model", cfg.judge.model)
     packer = Packer(
@@ -254,7 +268,9 @@ def judge_pending(
             continue
         jc = jcfgs.get_config(source)
         job_key = VerdictKey(state_hash, jc.version, backend.name, model)
-        pending = store.items_without_verdict(source, job_key)
+        pending = [
+            item for item in store.items_without_verdict(source, job_key) if (item.published or 0) >= min_published
+        ]
         if not pending:
             continue
         job = JudgeJob(source=source, config=jc)
@@ -334,8 +350,13 @@ def build_map(cfg: Config, store: Store, backend: JudgeBackend, report: RunRepor
     (arXiv 96h in the example config vs 24h real-time sources) — the map
     shows what this cycle's fetch actually covered, per source.
     """
-    _, end, label = window_for(cfg, report.date_label, report.window_hours)
-    end_ts = int(end.timestamp())
+    label = report.date_label
+    if report.window_end_ts:
+        end_ts = report.window_end_ts  # the cycle's exact cutoff — a date-only label would re-anchor at 06:00
+        end = datetime.fromtimestamp(end_ts)
+    else:
+        _, end, label = window_for(cfg, report.date_label, report.window_hours)
+        end_ts = int(end.timestamp())
     start_ts = widest_window_start(cfg, end, report.window_hours, report.source_overrides)
     model = getattr(backend, "model", cfg.judge.model)
     latest = store.latest_state()
@@ -396,7 +417,12 @@ def run_cycle(
     store = Store(cfg.db_path)
     try:
         _, end, label = window_for(cfg, date_label, window_hours)
-        report = RunReport(date_label=label, window_hours=window_hours, source_overrides=dict(source_overrides or {}))
+        report = RunReport(
+            date_label=label,
+            window_hours=window_hours,
+            source_overrides=dict(source_overrides or {}),
+            window_end_ts=int(end.timestamp()),
+        )
 
         backend = make_backend(cfg)
         detail = getattr(backend, "health_detail", None)
@@ -414,7 +440,10 @@ def run_cycle(
         report.backend_reason = backend_reason
         if backend_up:
             try:
-                report.judged, report.judge_errors = judge_pending(cfg, store, backend, state_hash, state_text)
+                start_ts0 = widest_window_start(cfg, end, window_hours, report.source_overrides)
+                report.judged, report.judge_errors = judge_pending(
+                    cfg, store, backend, state_hash, state_text, min_published=start_ts0
+                )
                 if report.judge_errors:
                     report.judge_error_sample = (store.judge_last_error() or "")[:160]
             except JudgeUnavailable:

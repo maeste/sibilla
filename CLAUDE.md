@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this repo is
 
-Sibilla is a personal research radar: it filters the daily AI/tech content flood (arXiv, HN, Reddit, X) against a judgment state built deterministically from the user's GitHub activity, using a System One judge backend (local CLM as reference deployment, hosted TypeSafe Jev as alternative), and renders the result as a single-file HTML treemap.
+Sibilla is a personal research radar: it filters the daily AI/tech content flood (arXiv, HN, Reddit, X) against a judgment state built deterministically from the user's conversations with coding agents (Claude Code today; Hermes/Codex adapters planned), using a System One judge backend (local CLM as reference deployment, hosted TypeSafe Jev as alternative), and renders the result as a single-file HTML treemap.
 
 **Implemented** (v0 → v2 code complete, see docs/05): the `sibilla/` package is the pipeline (fetch → normalize → state → judge → map build), `docs/` remains the source of truth — implementation changes that touch design decisions go through the docs first. Note the parent-directory `../CLAUDE.md` targets the sibling smolagents project; its tooling commands (make quality, etc.) do not apply here.
 
@@ -24,7 +24,7 @@ The docs form a dependency chain — read in order:
 Decided in design; do not relitigate in code without updating the docs first:
 
 1. **Deterministic ground truth, semantic decoration.** IDs, timestamps, cache keys, dedup keys, truncation are computed in code; only scores/labels come from the judge. The model never invents structure.
-2. **State is built, never generated.** Interest profile = GitHub (topics, README leads, commit subjects) + optional `RADAR.md`, appended verbatim. `state_hash = sha256(state_text)` keys every verdict; monthly rebuild cadence (daily churn would destroy the cache/cost model).
+2. **State is built, never generated.** Interest profile = agent conversations (user prompts, 30-day window, proportional per-project budget, regex redaction ON by default — the state is private text now) + optional `RADAR.md`, appended verbatim. `state_hash = sha256(state_text)` keys every verdict; weekly rebuild cadence (daily churn would destroy the cache/cost model).
 3. **No summarization.** The judge returns typed answers with probabilities (`score` / `noul` / `choice` primitives), never prose. Digest prose is explicitly deferred.
 4. **Sources are plugins; JudgeConfig is per-source.** Questions, scales and thresholds differ per content species; the state stays shared and unique. Adding a source must not touch the pipeline core.
 5. **Everything lands in SQLite first.** One local DB is the store, cost ledger and dedup history. Verdict cache key: `(item_id, state_hash, judgeconfig_version, backend, model)` — no item is judged twice under the same key; backend/model changes give free A/B.
@@ -33,7 +33,7 @@ Decided in design; do not relitigate in code without updating the docs first:
 
 ## Planned structure
 
-Implemented as designed: Python package `sibilla/` with `cli.py`, `pipeline.py`, `store.py`, `config.py`, `delivery.py`, and `state/`, `judge/`, `sources/`, `dedup/`, `render/` subpackages; tests in `tests/`. CLI: `sibilla run`, `sibilla map`, `sibilla state`, `sibilla tune`, `sibilla revive`, `sibilla prune`.
+Implemented as designed: Python package `sibilla/` with `cli.py`, `pipeline.py`, `store.py`, `config.py`, `delivery.py`, and `state/` (builder + conversations adapter), `judge/`, `sources/`, `dedup/`, `render/` subpackages; tests in `tests/`. CLI: `sibilla run`, `sibilla map`, `sibilla state`, `sibilla tune`, `sibilla revive`, `sibilla prune`.
 
 ## Commands
 
